@@ -1,0 +1,41 @@
+{
+  "name": "@openclaw-channel/socket-chat",
+  "version": "1.0.0",
+  "description": "OpenClaw Socket Chat channel plugin — MQTT-based IM bridge",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "mqtt": "^4.3.8",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.0.0"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "socket-chat",
+      "label": "Socket Chat",
+      "selectionLabel": "Socket Chat (MQTT plugin)",
+      "docsPath": "/channels/socket-chat",
+      "docsLabel": "socket-chat",
+      "blurb": "MQTT-based IM bridge; configure an API key to connect.",
+      "order": 90
+    },
+    "install": {
+      "npmSpec": "@openclaw/socket-chat",
+      "localPath": ".",
+      "defaultChoice": "local"
+    }
+  }
+}

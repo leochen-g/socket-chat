@@ -1,0 +1,9 @@
+{
+  "id": "socket-chat",
+  "channels": ["socket-chat"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
