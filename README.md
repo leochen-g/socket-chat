@@ -21,17 +21,11 @@ OpenClaw AI ──► socket-chat plugin ──MQTT──► sendTopic ──►
 ## 安装
 
 ```bash
-# 在 openclaw 项目目录中安装此插件
+# 从 npm 安装
+openclaw plugins add @openclaw-channel/socket-chat
+
+# 或者本地开发时从路径安装
 openclaw plugins add /path/to/socket-chat
-# 或者（发布到 npm 后）
-openclaw plugins add @openclaw/socket-chat
-```
-
-安装插件依赖：
-
-```bash
-cd /path/to/socket-chat
-npm install
 ```
 
 ---
@@ -44,7 +38,6 @@ npm install
 channels:
   socket-chat:
     apiKey: "your-api-key"
-    apiBaseUrl: "https://your-backend.com"
     enabled: true
     dmPolicy: "pairing"   # pairing | open | allowlist
     allowFrom: []         # 允许触发 AI 的发送者 ID 白名单
@@ -58,12 +51,10 @@ channels:
   socket-chat:
     accounts:
       work:
-        apiKey: "work-api-key"
-        apiBaseUrl: "https://work.example.com"
+        apiKey: "api-key"
         enabled: true
       personal:
-        apiKey: "personal-api-key"
-        apiBaseUrl: "https://personal.example.com"
+        apiKey: "api-key"
         enabled: true
 ```
 
@@ -81,7 +72,7 @@ channels:
 ## 通过 CLI 添加账号
 
 ```bash
-openclaw channels add socket-chat --token <apiKey> --http-url <apiBaseUrl>
+openclaw channels add socket-chat --token <apiKey>
 ```
 
 ---
@@ -204,7 +195,7 @@ socket-chat/
 
 后端需实现：
 
-### `GET /api/openclaw/chat/config?apikey={apiKey}`
+### `GET /openapi/v1/openclaw/chat/config?apikey={apiKey}`
 
 **Response 200:**
 ```json
