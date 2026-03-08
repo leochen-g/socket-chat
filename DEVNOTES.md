@@ -168,7 +168,47 @@ await waitForServer(`http://localhost:13100/health`);
 
 ---
 
-## 9. 测试工具链
+## 9. 入站媒体消息处理
+
+wechaty-web-panel 在 `publishClawMessage` 中把处理好的媒体数据通过 MQTT 发给插件，payload 携带三个额外字段：
+
+| 字段 | 说明 |
+|------|------|
+| `type` | 消息类型字符串：`文字` / `图片` / `视频` / `文件` / `语音` 等 |
+| `url` | 媒体资源链接（已上传 OSS 时为 HTTP URL，未配置 OSS 时为 base64） |
+| `mediaInfo` | 视频号/名片/h5链接等结构化元数据 |
+
+### 处理规则（inbound.ts）
+
+1. **跳过判断**：`!msg.content?.trim() && !msg.url` — 有 url 时不能跳过（图片消息 content 可能为空）
+2. **base64 过滤**：`msg.url?.startsWith("data:")` 时不注入 `MediaUrl`，避免超长 token 爆炸
+3. **MediaUrl 注入**：仅 HTTP URL 时写入 `MediaUrl`/`MediaUrls`/`MediaPath`/`MediaType`
+4. **body 优先级**：`content`（已格式化的描述文字） > `<media:${type}>` placeholder
+
+```ts
+const mediaUrl = msg.url && !msg.url.startsWith("data:") ? msg.url : undefined;
+const body = msg.content?.trim() || (isMediaMsg ? `<media:${msg.type}>` : "");
+
+...(mediaUrl ? {
+  MediaUrl: mediaUrl,
+  MediaUrls: [mediaUrl],
+  MediaPath: mediaUrl,
+  MediaType: msg.type === "图片" ? "image/jpeg" : msg.type === "视频" ? "video/mp4" : undefined,
+} : {}),
+```
+
+### 场景对照
+
+| 场景 | `content` | `url` | AI 收到 |
+|------|-----------|-------|---------|
+| 纯文字 | 消息文本 | — | 消息文本 |
+| 图片（有 OSS） | 包含链接的描述 | HTTP URL | 描述文字 + `MediaUrl` |
+| 图片（无 OSS） | 含 base64 的描述 | `data:image/...` | 仅描述文字，base64 被过滤 |
+| 空 content + URL | — | HTTP URL | `<media:图片>` placeholder |
+
+---
+
+## 10. 测试工具链
 
 ```
 socket-server/   — npm run dev     自动加载 .env，预置测试账号
