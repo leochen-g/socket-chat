@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "OpenClaw Socket Chat channel plugin — MQTT-based IM bridge",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest"
