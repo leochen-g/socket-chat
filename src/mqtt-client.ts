@@ -70,10 +70,16 @@ function parseInboundMessage(raw: Buffer | string): SocketChatInboundMessage | n
       senderId: m.senderId,
       senderName: typeof m.senderName === "string" ? m.senderName : m.senderId,
       isGroup: m.isGroup === true,
+      isGroupMention: m.isGroupMention === true,
       groupId: typeof m.groupId === "string" ? m.groupId : undefined,
       groupName: typeof m.groupName === "string" ? m.groupName : undefined,
       timestamp: typeof m.timestamp === "number" ? m.timestamp : Date.now(),
       messageId: m.messageId,
+      type: typeof m.type === "string" ? m.type : undefined,
+      url: typeof m.url === "string" ? m.url : undefined,
+      mediaInfo: m.mediaInfo && typeof m.mediaInfo === "object" && !Array.isArray(m.mediaInfo)
+        ? (m.mediaInfo as Record<string, unknown>)
+        : undefined,
     };
   } catch {
     return null;
