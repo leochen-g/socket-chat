@@ -128,6 +128,8 @@ channels:
 
 ## 通过 CLI 添加账号
 
+apiKey 从微秘书平台[个人中心](https://wechat.aibotk.com/user/info)获取
+
 ```bash
 openclaw channels add socket-chat --token <apiKey>
 ```
