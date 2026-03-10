@@ -65,7 +65,6 @@ channels:
 | `mqttConfigTtlSec` | `300` | MQTT 配置缓存时间（秒） |
 | `maxReconnectAttempts` | `10` | MQTT 断线最大重连次数 |
 | `reconnectBaseDelayMs` | `2000` | 重连基础延迟（毫秒，指数退避） |
-| `useTls` | `false` | 是否使用 `mqtts://`（TLS） |
 
 ---
 
@@ -81,7 +80,32 @@ openclaw channels add socket-chat --token <apiKey>
 
 ### 收到的 MQTT 消息（reciveTopic）
 
-文字消息：
+所有消息类型共有的字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | string | 消息内容（文字消息为原文，媒体消息为格式化描述） |
+| `robotId` | string | 机器人微信 ID |
+| `senderId` | string | 发消息人微信 ID（wxid） |
+| `senderName` | string | 发消息人昵称 |
+| `isGroup` | boolean | 是否为群消息 |
+| `groupId` | string \| undefined | 群 ID（仅群消息） |
+| `groupName` | string \| undefined | 群名称（仅群消息） |
+| `isGroupMention` | boolean | 是否在群中 @了机器人 |
+| `timestamp` | number | 消息时间戳（13 位毫秒） |
+| `messageId` | string | 消息 ID |
+| `type` | string | 消息类型，见下方枚举 |
+| `conversionId` | string | 会话 ID（私聊为 senderId，群聊为 groupId） |
+| `conversionName` | string | 会话名称（私聊为昵称，群聊为群名） |
+| `chatAlias` | string \| undefined | 发消息人在机器人通讯录中的备注 |
+| `chatUserWeixin` | string | 发消息人的微信号（weixin 字段，可能为空） |
+| `isMyself` | boolean | 是否为机器人自己发的消息 |
+| `url` | string \| undefined | 媒体资源链接（OSS URL 或 base64，仅媒体消息携带） |
+| `mediaInfo` | object \| undefined | 结构化媒体信息（名片、视频号、h5 链接携带） |
+
+`type` 枚举值：`文字`、`图片`、`视频`、`文件`、`语音`、`名片`、`h5链接`、`视频号`、`位置`、`历史记录`。
+
+文字消息示例：
 
 ```json
 {
@@ -90,11 +114,38 @@ openclaw channels add socket-chat --token <apiKey>
   "senderId": "wxid_user123",
   "senderName": "用户昵称",
   "isGroup": false,
-  "groupId": "roomid_xxx",
-  "groupName": "群组名称",
+  "isGroupMention": false,
   "timestamp": 1234567890123,
   "messageId": "uuid-xxx",
-  "type": "文字"
+  "type": "文字",
+  "conversionId": "wxid_user123",
+  "conversionName": "用户昵称",
+  "chatAlias": "同事小明",
+  "chatUserWeixin": "",
+  "isMyself": false
+}
+```
+
+群消息（@提及）示例：
+
+```json
+{
+  "content": "消息内容",
+  "robotId": "wxid_robot",
+  "senderId": "wxid_user123",
+  "senderName": "用户昵称",
+  "isGroup": true,
+  "groupId": "roomid_xxx",
+  "groupName": "工作群",
+  "isGroupMention": true,
+  "timestamp": 1234567890123,
+  "messageId": "uuid-xxx",
+  "type": "文字",
+  "conversionId": "roomid_xxx",
+  "conversionName": "工作群",
+  "chatAlias": "",
+  "chatUserWeixin": "",
+  "isMyself": false
 }
 ```
 
@@ -107,15 +158,66 @@ openclaw channels add socket-chat --token <apiKey>
   "senderId": "wxid_user123",
   "senderName": "用户昵称",
   "isGroup": false,
+  "isGroupMention": false,
   "timestamp": 1234567890123,
   "messageId": "uuid-xxx",
   "type": "图片",
+  "conversionId": "wxid_user123",
+  "conversionName": "用户昵称",
+  "chatAlias": "",
+  "chatUserWeixin": "",
+  "isMyself": false,
   "url": "https://oss.example.com/img.jpg"
 }
 ```
 
-> **说明**：`type` 枚举值包括 `文字`、`图片`、`视频`、`文件`、`语音`、`名片`、`h5链接`、`视频号`、`位置`、`历史记录`。
->
+名片消息（携带 `mediaInfo`）：
+
+```json
+{
+  "content": "【名片消息】\n联系人昵称：张三\n联系人ID：wxid_zhangsan",
+  "type": "名片",
+  "mediaInfo": {
+    "name": "张三",
+    "avatar": "https://...",
+    "wxid": "wxid_zhangsan"
+  }
+}
+```
+
+视频号消息（携带 `mediaInfo`）：
+
+```json
+{
+  "content": "【视频号消息】\n视频号昵称：xxx\n视频号简介：...\n视频号链接：https://...",
+  "type": "视频号",
+  "mediaInfo": {
+    "nickname": "xxx",
+    "coverUrl": "https://...",
+    "avatar": "https://...",
+    "desc": "视频号简介",
+    "url": "https://...",
+    "objectId": "...",
+    "objectNonceId": "..."
+  }
+}
+```
+
+h5 链接消息（携带 `mediaInfo`）：
+
+```json
+{
+  "content": "【链接消息】\n链接标题：xxx\n链接描述：...\n链接地址：https://...",
+  "type": "h5链接",
+  "mediaInfo": {
+    "url": "https://...",
+    "description": "链接描述",
+    "imageUrl": "https://thumbnail...",
+    "title": "链接标题"
+  }
+}
+```
+
 > 图片/视频等媒体消息会同时携带 `content`（格式化描述文字）和 `url`（资源链接）。若平台未配置 OSS，`url` 为 base64 字符串，插件会忽略 base64 内容，仅将 `content` 描述文字传给 AI agent。
 
 #### 媒体消息处理逻辑
@@ -126,6 +228,8 @@ openclaw channels add socket-chat --token <apiKey>
 | 图片（有 OSS URL） | 包含下载链接的描述 | HTTP URL | 描述文字 + `MediaUrl` 字段 |
 | 图片（无 OSS，base64） | 包含 base64 的描述 | `data:image/...` | 仅描述文字（base64 被过滤） |
 | 仅有 URL、无 content | — | HTTP URL | `<media:图片>` placeholder |
+
+---
 
 ### 发送的 MQTT 消息（sendTopic）
 

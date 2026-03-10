@@ -44,8 +44,6 @@ export const SocketChatAccountConfigSchema = z.object({
   maxReconnectAttempts: z.number().optional(),
   /** MQTT 重连基础延迟（毫秒），默认 2000，指数退避 */
   reconnectBaseDelayMs: z.number().optional(),
-  /** MQTT over TLS，默认 false */
-  useTls: z.boolean().optional(),
 });
 
 export type SocketChatAccountConfig = z.infer<typeof SocketChatAccountConfigSchema>;

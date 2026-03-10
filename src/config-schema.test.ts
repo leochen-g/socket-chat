@@ -15,7 +15,6 @@ describe("SocketChatAccountConfigSchema", () => {
       mqttConfigTtlSec: 600,
       maxReconnectAttempts: 5,
       reconnectBaseDelayMs: 1000,
-      useTls: false,
     });
 
     expect(parsed.apiKey).toBe("key123");

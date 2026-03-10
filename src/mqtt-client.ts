@@ -46,9 +46,8 @@ export function clearActiveMqttSession(accountId: string): void {
 // 工具函数
 // ---------------------------------------------------------------------------
 
-function buildMqttUrl(mqttConfig: SocketChatMqttConfig, useTls: boolean): string {
-  const protocol = useTls ? "mqtts" : "mqtt";
-  return `${protocol}://${mqttConfig.host}:${mqttConfig.port}`;
+function buildMqttUrl(mqttConfig: SocketChatMqttConfig): string {
+  return `${mqttConfig.host}:${mqttConfig.port}`;
 }
 
 function parseInboundMessage(raw: Buffer | string): SocketChatInboundMessage | null {
@@ -117,7 +116,6 @@ export async function monitorSocketChatProviderWithRegistry(params: {
   const { abortSignal } = ctx;
   const maxReconnects = account.config.maxReconnectAttempts ?? MAX_RECONNECT_ATTEMPTS_DEFAULT;
   const reconnectBaseMs = account.config.reconnectBaseDelayMs ?? RECONNECT_BASE_DELAY_MS_DEFAULT;
-  const useTls = account.config.useTls ?? false;
   const mqttConfigTtlMs = (account.config.mqttConfigTtlSec ?? 300) * 1000;
 
   let reconnectAttempts = 0;
@@ -155,7 +153,7 @@ export async function monitorSocketChatProviderWithRegistry(params: {
       }
 
       // 2. 建立 MQTT 连接
-      const mqttUrl = buildMqttUrl(mqttConfig, useTls);
+      const mqttUrl = buildMqttUrl(mqttConfig);
       log.info(`[${accountId}] connecting to ${mqttUrl} (clientId=${mqttConfig.clientId})`);
 
       const client = mqtt.connect(mqttUrl, {

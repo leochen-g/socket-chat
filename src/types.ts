@@ -18,6 +18,8 @@ export type SocketChatInboundMessage = {
   groupId?: string;
   /** 群名称（isGroup=true 时存在） */
   groupName?: string;
+  /** 是否在群中 @了机器人（由平台精确计算，优先于文本匹配） */
+  isGroupMention?: boolean;
   /** 11 位时间戳（毫秒） */
   timestamp: number;
   /** 消息唯一 ID */

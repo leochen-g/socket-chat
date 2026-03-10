@@ -136,10 +136,11 @@ function checkGroupMention(params: {
   const requireMention = account.config.requireMention !== false; // 默认 true
   if (!requireMention) return true;
 
-  // 检测消息中是否包含 robotId（简单 @提及）
+  // 优先使用平台传来的精确判断（on-claw-message.js 已计算好 isMention）
+  // fallback：检查消息内容中是否包含 @robotId（不做宽泛的 content.includes(robotId) 以避免误判）
   const mentioned =
-    msg.content.includes(`@${robotId}`) ||
-    msg.content.includes(robotId);
+    msg.isGroupMention === true ||
+    msg.content.includes(`@${robotId}`);
 
   if (!mentioned) {
     log.debug?.(

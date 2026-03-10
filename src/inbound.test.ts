@@ -321,6 +321,66 @@ describe("handleInboundMessage — dmPolicy=allowlist", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleInboundMessage — group messages", () => {
+  it("dispatches AI reply for group message with isGroupMention=true (no @text needed)", async () => {
+    const runtime = makeMockRuntime();
+
+    const ctx = makeCtx(runtime, {
+      channels: {
+        "socket-chat": {
+          apiKey: "k",
+          apiBaseUrl: "https://x.com",
+          requireMention: true,
+        },
+      },
+    });
+
+    await handleInboundMessage({
+      msg: makeMsg({
+        isGroup: true,
+        groupId: "roomid_group1",
+        robotId: "robot_abc",
+        isGroupMention: true,
+        content: "hello group (no @text in content)",
+      }),
+      accountId: "default",
+      ctx: ctx as never,
+      log: ctx.log,
+      sendReply: vi.fn(async () => {}),
+    });
+
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+
+  it("skips group message when isGroupMention=false and no @text", async () => {
+    const runtime = makeMockRuntime();
+
+    const ctx = makeCtx(runtime, {
+      channels: {
+        "socket-chat": {
+          apiKey: "k",
+          apiBaseUrl: "https://x.com",
+          requireMention: true,
+        },
+      },
+    });
+
+    await handleInboundMessage({
+      msg: makeMsg({
+        isGroup: true,
+        groupId: "roomid_group1",
+        robotId: "robot_abc",
+        isGroupMention: false,
+        content: "just chatting",
+      }),
+      accountId: "default",
+      ctx: ctx as never,
+      log: ctx.log,
+      sendReply: vi.fn(async () => {}),
+    });
+
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
   it("dispatches AI reply for group message mentioning robotId", async () => {
     const runtime = makeMockRuntime();
 

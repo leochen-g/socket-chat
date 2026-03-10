@@ -88,7 +88,6 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
         mqttConfigTtlSec: { type: "number" },
         maxReconnectAttempts: { type: "number" },
         reconnectBaseDelayMs: { type: "number" },
-        useTls: { type: "boolean" },
         accounts: {
           type: "object",
           additionalProperties: {
@@ -105,7 +104,6 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
               mqttConfigTtlSec: { type: "number" },
               maxReconnectAttempts: { type: "number" },
               reconnectBaseDelayMs: { type: "number" },
-              useTls: { type: "boolean" },
             },
           },
         },
@@ -117,7 +115,6 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
       dmPolicy: { label: "私信策略", help: "pairing=需配对, open=任意人, allowlist=白名单" },
       allowFrom: { label: "允许来源", help: "允许触发 AI 的发送者 ID 列表" },
       requireMention: { label: "群消息需@提及", help: "群组消息是否必须@提及机器人才触发" },
-      useTls: { label: "使用 TLS（mqtts://）", advanced: true },
       mqttConfigTtlSec: { label: "MQTT 配置缓存时间（秒）", advanced: true },
       maxReconnectAttempts: { label: "最大重连次数", advanced: true },
       reconnectBaseDelayMs: { label: "重连基础延迟（毫秒）", advanced: true },
@@ -305,7 +302,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
         // 补充 probe 信息到 snapshot
         probe,
         ...(probe && typeof probe === "object" && "host" in probe
-          ? { baseUrl: `mqtt://${(probe as { host?: string }).host}:${(probe as { port?: string }).port}` }
+          ? { baseUrl: `${(probe as { host?: string }).host}:${(probe as { port?: string }).port}` }
           : {}),
         lastInboundAt: runtime?.lastInboundAt ?? null,
         lastOutboundAt: runtime?.lastOutboundAt ?? null,
