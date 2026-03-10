@@ -32,12 +32,30 @@ export const SocketChatAccountConfigSchema = z.object({
   enabled: z.boolean().optional(),
   /** DM 安全策略 */
   dmPolicy: z.enum(["pairing", "open", "allowlist"]).optional(),
-  /** 允许触发 AI 的发送者 ID 列表 */
+  /** 允许触发 AI 的发送者 ID 列表（DM 用） */
   allowFrom: z.array(z.string()).optional(),
   /** 默认发消息目标（contactId 或 group:groupId） */
   defaultTo: z.string().optional(),
   /** 群组消息是否需要 @提及 bot 才触发 */
   requireMention: z.boolean().optional(),
+  /**
+   * 群组访问策略（第一层：哪些群允许触发 AI）
+   *   - "open"（默认）：bot 所在所有群均可触发
+   *   - "allowlist"：仅 groups 列表中的群可触发
+   *   - "disabled"：禁止所有群消息触发 AI
+   */
+  groupPolicy: z.enum(["open", "allowlist", "disabled"]).optional(),
+  /**
+   * 允许触发 AI 的群 ID 列表（第一层群级白名单）
+   * groupPolicy="allowlist" 时生效；groupPolicy="open" 时忽略
+   * 示例：["R:10804599808581977", "R:xxx"]
+   */
+  groups: z.array(z.string()).optional(),
+  /**
+   * 群内允许触发 AI 的发送者 ID 列表（第二层 sender 级白名单）
+   * 不配置或为空则允许群内所有成员触发（受 requireMention 约束）
+   */
+  groupAllowFrom: z.array(z.string()).optional(),
   /** MQTT 连接配置缓存 TTL（秒），默认 300 */
   mqttConfigTtlSec: z.number().optional(),
   /** MQTT 重连最大次数，默认 10 */

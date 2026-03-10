@@ -114,6 +114,94 @@ async function enforceDmAccess(params: {
 }
 
 // ---------------------------------------------------------------------------
+// 群组访问控制 — 第一层（groupId 级别）+ 第二层（sender 级别）
+// ---------------------------------------------------------------------------
+
+/**
+ * 规范化群/发送者 ID，去除前缀、空格、转小写，便于白名单对比。
+ */
+function normalizeSocketChatId(raw: string): string {
+  return raw.replace(/^(socket-chat|sc):/i, "").trim().toLowerCase();
+}
+
+/**
+ * 第一层：检查当前群是否被允许触发 AI。
+ *
+ * - groupPolicy="open"（默认）：所有群均可触发
+ * - groupPolicy="allowlist"：仅 groups 列表中的群可触发
+ * - groupPolicy="disabled"：禁止所有群消息触发 AI
+ */
+function checkGroupAccess(params: {
+  groupId: string;
+  account: ResolvedSocketChatAccount;
+  log: LogSink;
+  accountId: string;
+}): boolean {
+  const { groupId, account, log, accountId } = params;
+  const groupPolicy = account.config.groupPolicy ?? "open";
+
+  if (groupPolicy === "disabled") {
+    log.info(`[${accountId}] group msg blocked (groupPolicy=disabled)`);
+    return false;
+  }
+
+  if (groupPolicy === "open") {
+    return true;
+  }
+
+  // allowlist：检查 groupId 是否在 groups 名单中
+  const groups = (account.config.groups ?? []).map(normalizeSocketChatId);
+  if (groups.length === 0) {
+    // 配置了 allowlist 但没填 groups，视为全部禁止
+    log.info(`[${accountId}] group ${groupId} blocked (groupPolicy=allowlist, groups is empty)`);
+    return false;
+  }
+
+  const normalizedGroupId = normalizeSocketChatId(groupId);
+  const allowed = groups.includes("*") || groups.includes(normalizedGroupId);
+  if (!allowed) {
+    log.info(
+      `[${accountId}] group ${groupId} not in groups allowlist (groupPolicy=allowlist)`,
+    );
+  }
+  return allowed;
+}
+
+/**
+ * 第二层：检查群内发送者是否被允许触发 AI。
+ *
+ * 仅当 groupAllowFrom 非空时生效；为空则允许群内所有成员。
+ */
+function checkGroupSenderAccess(params: {
+  senderId: string;
+  senderName: string | undefined;
+  account: ResolvedSocketChatAccount;
+  log: LogSink;
+  accountId: string;
+}): boolean {
+  const { senderId, senderName, account, log, accountId } = params;
+  const groupAllowFrom = (account.config.groupAllowFrom ?? []).map(normalizeSocketChatId);
+
+  // 未配置 sender 白名单 → 不限制
+  if (groupAllowFrom.length === 0) return true;
+  if (groupAllowFrom.includes("*")) return true;
+
+  const normalizedSenderId = normalizeSocketChatId(senderId);
+  const normalizedSenderName = senderName ? senderName.trim().toLowerCase() : undefined;
+
+  const allowed =
+    groupAllowFrom.includes(normalizedSenderId) ||
+    (normalizedSenderName !== undefined && groupAllowFrom.includes(normalizedSenderName));
+
+  if (!allowed) {
+    log.info(
+      `[${accountId}] group sender ${senderId} not in groupAllowFrom`,
+    );
+  }
+  return allowed;
+}
+
+// ---------------------------------------------------------------------------
 // 群组消息 @提及检查
 // ---------------------------------------------------------------------------
 
@@ -208,7 +296,31 @@ export async function handleInboundMessage(params: {
     return;
   }
 
-  // ---- 2. 群组 @提及检查 ----
+  // ---- 2. 群组访问控制（第一层：群级 + 第二层：sender 级）----
+  if (msg.isGroup) {
+    const groupId = msg.groupId ?? msg.senderId;
+
+    // 第一层：groupId 是否在允许列表中
+    const groupAccessAllowed = checkGroupAccess({
+      groupId,
+      account,
+      log,
+      accountId,
+    });
+    if (!groupAccessAllowed) return;
+
+    // 第二层：群内发送者是否被允许
+    const senderAccessAllowed = checkGroupSenderAccess({
+      senderId: msg.senderId,
+      senderName: msg.senderName,
+      account,
+      log,
+      accountId,
+    });
+    if (!senderAccessAllowed) return;
+  }
+
+  // ---- 3. 群组 @提及检查 ----
   // robotId 从 MQTT config 传入（由 mqtt-client.ts 调用时提供）
   // 此处从 msg.robotId 字段取（平台在每条消息中会带上 robotId）
   const mentionAllowed = checkGroupMention({
