@@ -1,6 +1,6 @@
 {
   "name": "@openclaw-channel/socket-chat",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "OpenClaw Socket Chat channel plugin — MQTT-based IM bridge",
   "type": "module",
   "publishConfig": {

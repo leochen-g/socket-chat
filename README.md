@@ -22,10 +22,10 @@ OpenClaw AI ──► socket-chat plugin ──MQTT──► sendTopic ──►
 
 ```bash
 # 从 npm 安装
-openclaw plugins add @openclaw-channel/socket-chat
+openclaw plugins install @openclaw-channel/socket-chat
 
 # 或者本地开发时从路径安装
-openclaw plugins add /path/to/socket-chat
+openclaw plugins install /path/to/socket-chat
 ```
 
 ---
