@@ -39,10 +39,62 @@ channels:
   socket-chat:
     apiKey: "your-api-key"
     enabled: true
-    dmPolicy: "pairing"   # pairing | open | allowlist
-    allowFrom: []         # 允许触发 AI 的发送者 ID 白名单
-    requireMention: true  # 群组消息是否需要 @提及机器人
+
+    # DM（私聊）访问策略
+    dmPolicy: "pairing"       # pairing | open | allowlist
+    allowFrom: []             # DM 白名单（dmPolicy=allowlist/pairing 时生效）
+
+    # 群组访问策略
+    requireMention: true      # 群消息是否需要 @提及机器人
+    groupPolicy: "open"       # open | allowlist | disabled（见下方说明）
+    groups: []                # 允许的群 ID 列表（groupPolicy=allowlist 时生效）
+    groupAllowFrom: []        # 群内允许触发 AI 的发送者 ID/昵称列表
 ```
+
+### 群组访问控制
+
+群消息经过**三层**依次检查，任意一层不通过则丢弃该消息：
+
+#### 第一层：群级（哪些群允许触发 AI）
+
+| `groupPolicy` | 行为 |
+|--------------|------|
+| `open`（默认）| bot 所在所有群均可触发 |
+| `allowlist` | 仅 `groups` 列表中的群可触发；首次被拦截时向该群发一条提醒（进程内只发一次） |
+| `disabled` | 禁止所有群消息触发 AI，静默丢弃 |
+
+```yaml
+channels:
+  socket-chat:
+    groupPolicy: allowlist
+    groups:
+      - "R:10804599808581977"
+      - "R:another_group_id"
+```
+
+#### 第二层：sender 级（群内哪些人可以触发 AI）
+
+`groupAllowFrom` 为空时不限制（允许群内所有成员）。支持按 `senderId` 或 `senderName` 匹配，大小写不敏感，支持通配符 `*`。
+
+```yaml
+channels:
+  socket-chat:
+    groupAllowFrom:
+      - "wxid_123456"   # 按 senderId 精确匹配
+      - "Alice"         # 按 senderName 匹配
+      - "*"             # 允许所有成员
+```
+
+被拦截的 sender 静默丢弃，不向群发任何提示。
+
+#### 第三层：@提及检查
+
+`requireMention: true`（默认）时，群消息必须满足以下任意条件之一：
+- 平台传来 `isGroupMention: true`
+- 消息内容包含 `@{robotId}`
+
+> **注意**：媒体消息（图片、视频等）无法携带 @，若平台侧开启了 `forwardMediaMsg`，
+> 应在发布 MQTT 消息时主动将 `isGroupMention` 设为 `true`，避免被此层拦截。
 
 ### 多账号配置
 
@@ -62,6 +114,12 @@ channels:
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
+| `dmPolicy` | `pairing` | DM 访问策略：`pairing` / `open` / `allowlist` |
+| `allowFrom` | `[]` | DM 白名单，senderId 或 senderName 列表 |
+| `requireMention` | `true` | 群消息是否需要 @提及机器人 |
+| `groupPolicy` | `open` | 群访问策略：`open` / `allowlist` / `disabled` |
+| `groups` | `[]` | 允许的群 ID 列表（`groupPolicy=allowlist` 时生效） |
+| `groupAllowFrom` | `[]` | 群内允许触发 AI 的发送者 ID/昵称列表，空=不限制 |
 | `mqttConfigTtlSec` | `300` | MQTT 配置缓存时间（秒） |
 | `maxReconnectAttempts` | `10` | MQTT 断线最大重连次数 |
 | `reconnectBaseDelayMs` | `2000` | 重连基础延迟（毫秒，指数退避） |
