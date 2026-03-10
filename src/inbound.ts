@@ -123,6 +123,11 @@ async function enforceDmAccess(params: {
  */
 const notifiedGroups = new Set<string>();
 
+/** 仅供测试使用：重置一次性提醒状态。 */
+export function _resetNotifiedGroupsForTest(): void {
+  notifiedGroups.clear();
+}
+
 /**
  * 规范化群/发送者 ID，去除前缀、空格、转小写，便于白名单对比。
  */

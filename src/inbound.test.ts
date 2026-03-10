@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { handleInboundMessage } from "./inbound.js";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { handleInboundMessage, _resetNotifiedGroupsForTest } from "./inbound.js";
 import type { SocketChatInboundMessage } from "./types.js";
 import type { CoreConfig } from "./config.js";
 
@@ -735,5 +735,178 @@ describe("handleInboundMessage — edge cases", () => {
     expect(runtime.activity.record).toHaveBeenCalledWith(
       expect.objectContaining({ direction: "outbound", channel: "socket-chat" }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group access control — tier 1 (groupId) + tier 2 (sender)
+// ---------------------------------------------------------------------------
+
+describe("handleInboundMessage — group access control (tier 1: groupId)", () => {
+  beforeEach(() => {
+    _resetNotifiedGroupsForTest();
+  });
+
+  it("allows all groups when groupPolicy=open (default)", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", requireMention: false } },
+    });
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:any_group", robotId: "robot_abc", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+
+  it("blocks all groups when groupPolicy=disabled (no notification)", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "disabled" } },
+    });
+    const sendReply = vi.fn(async () => {});
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:any_group", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("allows group in allowlist when groupPolicy=allowlist", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: {
+        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"], requireMention: false },
+      },
+    });
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:allowed_group", robotId: "robot_abc", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+
+  it("blocks unlisted group and sends one-time notification", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
+    });
+    const sendReply = vi.fn(async () => {});
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:other_group", groupName: "测试群", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(sendReply).toHaveBeenCalledOnce();
+    expect(sendReply.mock.calls[0]?.[0]).toBe("group:R:other_group");
+    expect(sendReply.mock.calls[0]?.[1]).toContain("R:other_group");
+  });
+
+  it("does NOT send second notification for same blocked group", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
+    });
+    const sendReply = vi.fn(async () => {});
+    const msg = makeMsg({ isGroup: true, groupId: "R:notify_once_group", isGroupMention: true });
+    await handleInboundMessage({ msg, accountId: "default", ctx: ctx as never, log: ctx.log, sendReply });
+    await handleInboundMessage({ msg, accountId: "default", ctx: ctx as never, log: ctx.log, sendReply });
+    expect(sendReply).toHaveBeenCalledOnce();
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("blocks when groupPolicy=allowlist and groups is empty (no notification)", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: [] } },
+    });
+    const sendReply = vi.fn(async () => {});
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:any_group", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("allows wildcard '*' in groups list", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["*"], requireMention: false } },
+    });
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:any_group", robotId: "robot_abc", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+});
+
+describe("handleInboundMessage — group access control (tier 2: sender)", () => {
+  beforeEach(() => {
+    _resetNotifiedGroupsForTest();
+  });
+
+  it("allows all senders when groupAllowFrom is empty", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", requireMention: false } },
+    });
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_anyone", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+
+  it("allows sender matching groupAllowFrom by ID", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["wxid_allowed"], requireMention: false } },
+    });
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_allowed", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+
+  it("allows sender matching groupAllowFrom by name (case-insensitive)", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["alice"], requireMention: false } },
+    });
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_unknown", senderName: "Alice", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+
+  it("blocks sender not in groupAllowFrom (silent drop)", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["wxid_allowed"], requireMention: false } },
+    });
+    const sendReply = vi.fn(async () => {});
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_stranger", senderName: "Stranger", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("allows wildcard '*' in groupAllowFrom", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["*"], requireMention: false } },
+    });
+    await handleInboundMessage({
+      msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_anyone", isGroupMention: true }),
+      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+    });
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
   });
 });
