@@ -40,6 +40,16 @@ type MockChannelRuntime = {
   activity: {
     record: ReturnType<typeof vi.fn>;
   };
+  channel: {
+    media: {
+      fetchRemoteMedia: ReturnType<typeof vi.fn>;
+      saveMediaBuffer: ReturnType<typeof vi.fn>;
+    };
+  };
+  media: {
+    fetchRemoteMedia: ReturnType<typeof vi.fn>;
+    saveMediaBuffer: ReturnType<typeof vi.fn>;
+  };
 };
 
 function makeMockRuntime(overrides: Partial<MockChannelRuntime> = {}): MockChannelRuntime {
@@ -71,6 +81,30 @@ function makeMockRuntime(overrides: Partial<MockChannelRuntime> = {}): MockChann
     activity: {
       record: vi.fn(),
       ...overrides.activity,
+    },
+    channel: {
+      media: {
+        fetchRemoteMedia: vi.fn(async () => ({
+          buffer: Buffer.from("fake-image-data"),
+          contentType: "image/jpeg",
+        })),
+        saveMediaBuffer: vi.fn(async () => ({
+          path: "/tmp/openclaw/inbound/saved-img.jpg",
+          contentType: "image/jpeg",
+        })),
+        ...overrides.channel?.media,
+      },
+    },
+    media: {
+      fetchRemoteMedia: vi.fn(async () => ({
+        buffer: Buffer.from("fake-image-data"),
+        contentType: "image/jpeg",
+      })),
+      saveMediaBuffer: vi.fn(async () => ({
+        path: "/tmp/openclaw/inbound/saved-img.jpg",
+        contentType: "image/jpeg",
+      })),
+      ...overrides.media,
     },
   };
 }
@@ -508,8 +542,13 @@ describe("handleInboundMessage — group messages", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleInboundMessage — media messages", () => {
-  it("passes MediaUrl fields when msg has an HTTP url (image)", async () => {
+  it("downloads image URL and passes local path as MediaPath/MediaUrl", async () => {
     const runtime = makeMockRuntime();
+    runtime.media.saveMediaBuffer.mockResolvedValue({
+      path: "/tmp/openclaw/inbound/img-001.jpg",
+      contentType: "image/jpeg",
+    });
+
     const ctx = makeCtx(runtime, {
       channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
@@ -518,7 +557,7 @@ describe("handleInboundMessage — media messages", () => {
       msg: makeMsg({
         type: "图片",
         url: "https://oss.example.com/img.jpg",
-        content: "【图片消息】\n文件名：img.jpg\n下载链接：https://oss.example.com/img.jpg",
+        content: "【图片消息】\n文件名：img.jpg",
       }),
       accountId: "default",
       ctx: ctx as never,
@@ -526,19 +565,36 @@ describe("handleInboundMessage — media messages", () => {
       sendReply: vi.fn(async () => {}),
     });
 
+    // fetchRemoteMedia should have been called with the original URL
+    expect(runtime.media.fetchRemoteMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://oss.example.com/img.jpg" }),
+    );
+    // saveMediaBuffer should have been called
+    expect(runtime.media.saveMediaBuffer).toHaveBeenCalledOnce();
+    // ctxPayload should carry the saved local path, not the original URL
     expect(runtime.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        MediaUrl: "https://oss.example.com/img.jpg",
-        MediaUrls: ["https://oss.example.com/img.jpg"],
-        MediaPath: "https://oss.example.com/img.jpg",
+        MediaPath: "/tmp/openclaw/inbound/img-001.jpg",
+        MediaUrl: "/tmp/openclaw/inbound/img-001.jpg",
+        MediaPaths: ["/tmp/openclaw/inbound/img-001.jpg"],
+        MediaUrls: ["/tmp/openclaw/inbound/img-001.jpg"],
         MediaType: "image/jpeg",
       }),
     );
     expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
   });
 
-  it("passes MediaUrl fields when msg has an HTTP url (video)", async () => {
+  it("downloads video URL and detects correct content type", async () => {
     const runtime = makeMockRuntime();
+    runtime.media.fetchRemoteMedia.mockResolvedValue({
+      buffer: Buffer.from("fake-video-data"),
+      contentType: "video/mp4",
+    });
+    runtime.media.saveMediaBuffer.mockResolvedValue({
+      path: "/tmp/openclaw/inbound/video-001.mp4",
+      contentType: "video/mp4",
+    });
+
     const ctx = makeCtx(runtime, {
       channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
@@ -547,7 +603,7 @@ describe("handleInboundMessage — media messages", () => {
       msg: makeMsg({
         type: "视频",
         url: "https://oss.example.com/video.mp4",
-        content: "【视频消息】\n文件名：video.mp4\n下载链接：https://oss.example.com/video.mp4",
+        content: "【视频消息】",
       }),
       accountId: "default",
       ctx: ctx as never,
@@ -557,23 +613,30 @@ describe("handleInboundMessage — media messages", () => {
 
     expect(runtime.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        MediaUrl: "https://oss.example.com/video.mp4",
+        MediaPath: "/tmp/openclaw/inbound/video-001.mp4",
         MediaType: "video/mp4",
       }),
     );
   });
 
-  it("does NOT pass MediaUrl for base64 url (no OSS configured)", async () => {
+  it("decodes base64 data URL and saves to local file", async () => {
     const runtime = makeMockRuntime();
+    runtime.media.saveMediaBuffer.mockResolvedValue({
+      path: "/tmp/openclaw/inbound/b64-img.jpg",
+      contentType: "image/jpeg",
+    });
+
     const ctx = makeCtx(runtime, {
       channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
+    // minimal valid JPEG-ish base64
+    const fakeBase64 = Buffer.from("fake-jpeg-bytes").toString("base64");
     await handleInboundMessage({
       msg: makeMsg({
         type: "图片",
-        url: "data:image/jpeg;base64,/9j/4AAQ...",
-        content: "【图片消息】\n文件名：img.jpg\n文件大小：12345 bytes",
+        url: `data:image/jpeg;base64,${fakeBase64}`,
+        content: "【图片消息】",
       }),
       accountId: "default",
       ctx: ctx as never,
@@ -581,9 +644,155 @@ describe("handleInboundMessage — media messages", () => {
       sendReply: vi.fn(async () => {}),
     });
 
+    // Should NOT call fetchRemoteMedia for data URLs
+    expect(runtime.media.fetchRemoteMedia).not.toHaveBeenCalled();
+    // Should call saveMediaBuffer with decoded buffer
+    expect(runtime.media.saveMediaBuffer).toHaveBeenCalledOnce();
+    const [savedBuf, savedMime] = runtime.media.saveMediaBuffer.mock.calls[0] as [Buffer, string];
+    expect(Buffer.isBuffer(savedBuf)).toBe(true);
+    expect(savedBuf.toString()).toBe("fake-jpeg-bytes");
+    expect(savedMime).toBe("image/jpeg");
+    // ctxPayload should carry the local path
+    expect(runtime.reply.finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        MediaPath: "/tmp/openclaw/inbound/b64-img.jpg",
+        MediaUrl: "/tmp/openclaw/inbound/b64-img.jpg",
+      }),
+    );
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+
+  it("skips base64 media that exceeds maxBytes and continues dispatch", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      // 1 MB limit
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open", mediaMaxMb: 1 } },
+    });
+    const log = { ...ctx.log, warn: vi.fn() };
+
+    // ~2 MB of base64 data (each char ≈ 0.75 bytes → need > 1.4M chars)
+    const bigBase64 = "A".repeat(1_500_000);
+    await handleInboundMessage({
+      msg: makeMsg({
+        type: "图片",
+        url: `data:image/jpeg;base64,${bigBase64}`,
+        content: "【图片消息】",
+      }),
+      accountId: "default",
+      ctx: ctx as never,
+      log,
+      sendReply: vi.fn(async () => {}),
+    });
+
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("media localization failed"));
+    expect(runtime.media.saveMediaBuffer).not.toHaveBeenCalled();
+    // Dispatch still proceeds without media fields
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
     const callArg = runtime.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArg).not.toHaveProperty("MediaPath");
+  });
+
+  it("does not call fetchRemoteMedia for base64 data URLs (uses saveMediaBuffer directly)", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+    });
+
+    const fakeBase64 = Buffer.from("img-bytes").toString("base64");
+    await handleInboundMessage({
+      msg: makeMsg({
+        type: "图片",
+        url: `data:image/jpeg;base64,${fakeBase64}`,
+        content: "【图片消息】",
+      }),
+      accountId: "default",
+      ctx: ctx as never,
+      log: ctx.log,
+      sendReply: vi.fn(async () => {}),
+    });
+
+    expect(runtime.media.fetchRemoteMedia).not.toHaveBeenCalled();
+    expect(runtime.media.saveMediaBuffer).toHaveBeenCalledOnce();
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+  });
+
+  it("does not call fetchRemoteMedia when url is absent", async () => {
+    const runtime = makeMockRuntime();
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+    });
+
+    await handleInboundMessage({
+      msg: makeMsg({ content: "plain text, no media" }),
+      accountId: "default",
+      ctx: ctx as never,
+      log: ctx.log,
+      sendReply: vi.fn(async () => {}),
+    });
+
+    expect(runtime.media.fetchRemoteMedia).not.toHaveBeenCalled();
+    expect(runtime.media.saveMediaBuffer).not.toHaveBeenCalled();
+    const callArg = runtime.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArg).not.toHaveProperty("MediaPath");
+  });
+
+  it("continues dispatch and logs warning when media download fails", async () => {
+    const runtime = makeMockRuntime();
+    runtime.media.fetchRemoteMedia.mockRejectedValue(new Error("network timeout"));
+
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+    });
+    const log = { ...ctx.log, warn: vi.fn() };
+
+    await handleInboundMessage({
+      msg: makeMsg({
+        type: "图片",
+        url: "https://oss.example.com/img.jpg",
+        content: "【图片消息】",
+      }),
+      accountId: "default",
+      ctx: ctx as never,
+      log,
+      sendReply: vi.fn(async () => {}),
+    });
+
+    // Warning logged
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining("media localization failed"),
+    );
+    // Dispatch still proceeds (text body)
+    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    // No media fields in ctxPayload
+    const callArg = runtime.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArg).not.toHaveProperty("MediaPath");
     expect(callArg).not.toHaveProperty("MediaUrl");
-    expect(callArg).not.toHaveProperty("MediaUrls");
+  });
+
+  it("continues dispatch and logs warning when saveMediaBuffer fails", async () => {
+    const runtime = makeMockRuntime();
+    runtime.media.saveMediaBuffer.mockRejectedValue(new Error("disk full"));
+
+    const ctx = makeCtx(runtime, {
+      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+    });
+    const log = { ...ctx.log, warn: vi.fn() };
+
+    await handleInboundMessage({
+      msg: makeMsg({
+        type: "图片",
+        url: "https://oss.example.com/img.jpg",
+        content: "【图片消息】",
+      }),
+      accountId: "default",
+      ctx: ctx as never,
+      log,
+      sendReply: vi.fn(async () => {}),
+    });
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining("media localization failed"),
+    );
     expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
   });
 
@@ -605,7 +814,6 @@ describe("handleInboundMessage — media messages", () => {
       sendReply: vi.fn(async () => {}),
     });
 
-    // Should not be skipped — dispatches even without text content
     expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
   });
 
@@ -666,6 +874,7 @@ describe("handleInboundMessage — media messages", () => {
     });
 
     expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(runtime.media.fetchRemoteMedia).not.toHaveBeenCalled();
   });
 });
 
@@ -787,7 +996,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
     expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
   });
 
-  it("blocks unlisted group and sends one-time notification", async () => {
+  it("blocks unlisted group without sending notification (notify branch commented out)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
       channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
@@ -798,12 +1007,11 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
       accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
     });
     expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
-    expect(sendReply).toHaveBeenCalledOnce();
-    expect(sendReply.mock.calls[0]?.[0]).toBe("group:R:other_group");
-    expect(sendReply.mock.calls[0]?.[1]).toContain("R:other_group");
+    // Notification is currently disabled (commented out in inbound.ts)
+    expect(sendReply).not.toHaveBeenCalled();
   });
 
-  it("does NOT send second notification for same blocked group", async () => {
+  it("silently blocks repeated messages from same unlisted group", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
       channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
@@ -812,7 +1020,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
     const msg = makeMsg({ isGroup: true, groupId: "R:notify_once_group", isGroupMention: true });
     await handleInboundMessage({ msg, accountId: "default", ctx: ctx as never, log: ctx.log, sendReply });
     await handleInboundMessage({ msg, accountId: "default", ctx: ctx as never, log: ctx.log, sendReply });
-    expect(sendReply).toHaveBeenCalledOnce();
+    expect(sendReply).not.toHaveBeenCalled();
     expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 

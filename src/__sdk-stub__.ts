@@ -7,6 +7,9 @@
  */
 export { resolveAllowlistMatchByCandidates } from "../../openclaw/src/channels/allowlist-match.js";
 export { createNormalizedOutboundDeliverer } from "../../openclaw/src/plugin-sdk/reply-payload.js";
+export { buildMediaPayload } from "../../openclaw/src/channels/plugins/media-payload.js";
+export { resolveChannelMediaMaxBytes } from "../../openclaw/src/channels/plugins/media-limits.js";
+export { detectMime } from "../../openclaw/src/media/mime.js";
 
 // ---- type-only re-exports (erased at runtime) ----
 export type { ChannelGatewayContext } from "../../openclaw/src/plugin-sdk/index.js";

@@ -56,6 +56,8 @@ export const SocketChatAccountConfigSchema = z.object({
    * 不配置或为空则允许群内所有成员触发（受 requireMention 约束）
    */
   groupAllowFrom: z.array(z.string()).optional(),
+  /** 媒体文件大小上限（MB）。未配置时使用框架全局默认值 */
+  mediaMaxMb: z.number().optional(),
   /** MQTT 连接配置缓存 TTL（秒），默认 300 */
   mqttConfigTtlSec: z.number().optional(),
   /** MQTT 重连最大次数，默认 10 */

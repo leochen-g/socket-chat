@@ -114,6 +114,82 @@ beforeEach(() => {
 
 ---
 
+## 媒体文件本地化（inbound）
+
+### 设计决策
+
+AI agent 直接读取本地文件路径比依赖外部 URL 更可靠：外部 URL 可能因权限、过期、网络问题而无法访问，而本地化后的文件路径在 agent 处理时始终可用。因此入站媒体消息在派发给 agent 之前，先将媒体内容下载/解码到本地，ctxPayload 中的 `MediaPath` 字段携带本地路径而非原始 URL。
+
+### 实现路径
+
+入站处理函数 `handleInboundMessage`（`src/inbound.ts`）在安全/提及检查通过后、路由之前执行媒体本地化。`msg.url` 有值时才进入此逻辑。
+
+**路径 A：HTTP/HTTPS URL**
+
+1. 调用 `channelRuntime.media.fetchRemoteMedia({ url, filePathHint, maxBytes })` 发起 HTTP 下载，拿到 `{ buffer, contentType }`
+2. 调用 `detectMime({ buffer, headerMime: contentType, filePath: url })` 检测 MIME
+3. 调用 `channelRuntime.media.saveMediaBuffer(buffer, mime, "inbound", maxBytes)` 落盘，拿到 `{ path, contentType }`
+
+**路径 B：base64 data URL**
+
+格式：`data:<mime>;base64,<payload>`
+
+1. 解析 `data:` 前缀，提取 MIME（逗号前的 meta 去掉 `;base64` 部分）和 base64 载荷
+2. 大小预检：`Math.ceil(base64Data.length * 0.75)` 估算原始字节数，超过 `maxBytes` 则抛出异常（进入降级逻辑）
+3. `Buffer.from(base64Data, "base64")` 解码为 buffer
+4. 同路径 A 的步骤 2–3：`detectMime` + `saveMediaBuffer`
+
+**统一出口**
+
+两条路径成功后都调用：
+```ts
+resolvedMediaPayload = buildMediaPayload([
+  { path: saved.path, contentType: saved.contentType },
+]);
+```
+生成的字段（`MediaPath`, `MediaUrl`, `MediaPaths`, `MediaUrls`, `MediaType`）通过 `...resolvedMediaPayload` 展开写入 `ctxPayload`。
+
+### 关键 API
+
+| API | 来源 | 作用 |
+|-----|------|------|
+| `channelRuntime.media.fetchRemoteMedia` | Plugin SDK runtime | HTTP 下载远端媒体，返回 buffer + contentType，内部遵守 maxBytes 限制 |
+| `channelRuntime.media.saveMediaBuffer` | Plugin SDK runtime | 将 buffer 持久化到框架管理的本地媒体目录，返回 `{ path, contentType }` |
+| `buildMediaPayload` | `openclaw/plugin-sdk` | 将 `{ path, contentType }[]` 转为 ctxPayload 媒体标准字段 |
+| `resolveChannelMediaMaxBytes` | `openclaw/plugin-sdk` | 从全局 cfg 读取媒体大小上限（MB 转字节），找不到则返回框架默认值 |
+| `detectMime` | `openclaw/plugin-sdk` | 综合 buffer magic bytes + HTTP Content-Type header + 文件扩展名推断 MIME |
+
+### 注意事项
+
+**base64 大小预检逻辑**
+
+base64 编码后字符数 × 0.75 ≈ 原始字节数（忽略 padding 误差），用 `Math.ceil` 向上取整做保守估算。预检在 `Buffer.from` 之前执行，避免先分配大内存再拒绝。
+
+**失败降级策略**
+
+整个媒体本地化块（含下载、解码、保存）包裹在 `try/catch` 中。任何步骤失败只执行 `log.warn`，`resolvedMediaPayload` 保持为空对象 `{}`，消息处理继续进行，文字内容正常派发给 agent。这样单张图片下载失败不会阻塞整个对话。
+
+**maxBytes 配置方式**
+
+`resolveChannelMediaMaxBytes` 通过 `resolveChannelLimitMb` 回调读取：
+
+```ts
+const maxBytes = resolveChannelMediaMaxBytes({
+  cfg: ctx.cfg,
+  resolveChannelLimitMb: ({ cfg }) =>
+    (cfg as CoreConfig).channels?.["socket-chat"]?.mediaMaxMb,
+  accountId,
+});
+```
+
+目前 socket-chat 的 `CoreConfig` schema 中未定义 `mediaMaxMb` 字段，所以该回调返回 `undefined`，由框架使用内置默认值（通常为数十 MB）。如需自定义限制，在 `CoreConfig` schema 中添加 `mediaMaxMb?: number` 并在配置文件中设置即可。
+
+**SDK stub 更新**
+
+新增了三个从 `openclaw/plugin-sdk` 导入的符号：`buildMediaPayload`、`resolveChannelMediaMaxBytes`、`detectMime`。如果运行测试报导出不存在错误，需要在 `src/__sdk-stub__.ts` 中补充这三个符号的 mock 导出。
+
+---
+
 ## 发布流程
 
 1. 修改代码

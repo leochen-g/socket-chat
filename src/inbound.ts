@@ -1,5 +1,11 @@
 import type { ChannelGatewayContext } from "openclaw/plugin-sdk";
-import { resolveAllowlistMatchByCandidates, createNormalizedOutboundDeliverer } from "openclaw/plugin-sdk";
+import {
+  resolveAllowlistMatchByCandidates,
+  createNormalizedOutboundDeliverer,
+  buildMediaPayload,
+  resolveChannelMediaMaxBytes,
+  detectMime,
+} from "openclaw/plugin-sdk";
 import { resolveSocketChatAccount, type CoreConfig } from "./config.js";
 import type { ResolvedSocketChatAccount } from "./config.js";
 import type { SocketChatInboundMessage } from "./types.js";
@@ -274,8 +280,9 @@ type LogSink = {
  * 处理 MQTT 入站消息：
  * 1. 安全策略检查（allowlist / pairing）
  * 2. 群组 @提及检查
- * 3. 路由 + 记录 session
- * 4. 派发 AI 回复
+ * 3. 媒体文件下载到本地
+ * 4. 路由 + 记录 session
+ * 5. 派发 AI 回复
  */
 export async function handleInboundMessage(params: {
   msg: SocketChatInboundMessage;
@@ -323,12 +330,12 @@ export async function handleInboundMessage(params: {
     // 第一层：groupId 是否在允许列表中
     const groupAccess = checkGroupAccess({ groupId, account, log, accountId });
     if (!groupAccess.allowed) {
-      if (groupAccess.notify) {
-        await sendReply(
-          `group:${groupId}`,
-          `此群（${msg.groupName ?? groupId}）未获授权使用 AI 服务。如需开启，请联系管理员将群 ID "${groupId}" 加入 groups 配置。`,
-        );
-      }
+      // if (groupAccess.notify) {
+      //   await sendReply(
+      //     `group:${groupId}`,
+      //     `此群（${msg.groupName ?? groupId}）未获授权使用 AI 服务。如需开启，请联系管理员将群 ID "${groupId}" 加入 groups 配置。`,
+      //   );
+      // }
       return;
     }
 
@@ -361,13 +368,78 @@ export async function handleInboundMessage(params: {
   const peerId = msg.isGroup ? (msg.groupId ?? msg.senderId) : msg.senderId;
 
   // 判断是否为媒体消息（图片/视频/文件等）
-  const mediaUrl = msg.url && !msg.url.startsWith("data:") ? msg.url : undefined;
-  // base64 内容不传给 agent（避免超长），仅标记 placeholder
   const isMediaMsg = !!msg.type && msg.type !== "文字";
   // BodyForAgent：媒体消息在 content 中已包含描述文字（如"【图片消息】\n下载链接：..."），直接使用
   const body = msg.content?.trim() || (isMediaMsg ? `<media:${msg.type}>` : "");
 
-  // ---- 3. 路由 ----
+  // ---- 3. 媒体文件本地化 ----
+  // 将媒体 URL 下载到本地，让 agent 能直接读取文件而不依赖外部 URL 的可用性。
+  // HTTP/HTTPS URL：通过 fetchRemoteMedia 下载；data: URL：直接解码 base64。
+  let resolvedMediaPayload = {};
+  const mediaUrl = msg.url?.trim();
+  if (mediaUrl) {
+    try {
+      const maxBytes = resolveChannelMediaMaxBytes({
+        cfg: ctx.cfg,
+        resolveChannelLimitMb: ({ cfg }) =>
+          (cfg as CoreConfig).channels?.["socket-chat"]?.mediaMaxMb,
+        accountId,
+      });
+
+      let buffer: Buffer;
+      let contentTypeHint: string | undefined;
+
+      if (mediaUrl.startsWith("data:")) {
+        // data URL：解析 MIME 和 base64 载荷
+        const commaIdx = mediaUrl.indexOf(",");
+        const meta = commaIdx > 0 ? mediaUrl.slice(5, commaIdx) : "";
+        const base64Data = commaIdx > 0 ? mediaUrl.slice(commaIdx + 1) : "";
+        contentTypeHint = meta.split(";")[0] || undefined;
+
+        // 大小预检（base64 字节数 × 0.75 ≈ 原始字节数）
+        const estimatedBytes = Math.ceil(base64Data.length * 0.75);
+        if (maxBytes && estimatedBytes > maxBytes) {
+          log.warn(
+            `[${accountId}] base64 media too large for ${msg.messageId} (est. ${estimatedBytes} bytes, limit ${maxBytes})`,
+          );
+          throw new Error("base64 media exceeds maxBytes limit");
+        }
+
+        buffer = Buffer.from(base64Data, "base64");
+      } else {
+        // HTTP/HTTPS URL：通过网络下载
+        const fetched = await channelRuntime.media.fetchRemoteMedia({
+          url: mediaUrl,
+          filePathHint: mediaUrl,
+          maxBytes,
+        });
+        buffer = fetched.buffer;
+        contentTypeHint = fetched.contentType;
+      }
+
+      const mime = await detectMime({
+        buffer,
+        headerMime: contentTypeHint,
+        filePath: mediaUrl,
+      });
+      const saved = await channelRuntime.media.saveMediaBuffer(
+        buffer,
+        mime ?? contentTypeHint,
+        "inbound",
+        maxBytes,
+      );
+      resolvedMediaPayload = buildMediaPayload([
+        { path: saved.path, contentType: saved.contentType },
+      ]);
+    } catch (err) {
+      // 下载/解码失败不阻断消息处理，仍正常派发文字部分
+      log.warn(
+        `[${accountId}] media localization failed for ${msg.messageId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // ---- 4. 路由 ----
   const route = channelRuntime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
     channel: "socket-chat",
@@ -382,7 +454,7 @@ export async function handleInboundMessage(params: {
     `[${accountId}] dispatch ${msg.messageId} from ${msg.senderId} → agent ${route.agentId}`,
   );
 
-  // ---- 4. 构建 MsgContext ----
+  // ---- 5. 构建 MsgContext ----
   const fromLabel = msg.isGroup
     ? `socket-chat:room:${peerId}`
     : `socket-chat:${msg.senderId}`;
@@ -396,15 +468,7 @@ export async function handleInboundMessage(params: {
     RawBody: msg.content || (msg.url ?? ""),
     BodyForAgent: body,
     CommandBody: body,
-    ...(mediaUrl
-      ? {
-          MediaUrl: mediaUrl,
-          MediaUrls: [mediaUrl],
-          MediaPath: mediaUrl,
-          // 尽量从 type 推断 MIME，否则留空由框架处理
-          MediaType: msg.type === "图片" ? "image/jpeg" : msg.type === "视频" ? "video/mp4" : undefined,
-        }
-      : {}),
+    ...resolvedMediaPayload,
     From: fromLabel,
     To: toLabel,
     SessionKey: route.sessionKey,
@@ -425,7 +489,7 @@ export async function handleInboundMessage(params: {
   });
 
   try {
-    // ---- 5. 记录 session 元数据 ----
+    // ---- 6. 记录 session 元数据 ----
     const storePath = channelRuntime.session.resolveStorePath(undefined, {
       agentId: route.agentId,
     });
@@ -445,7 +509,7 @@ export async function handleInboundMessage(params: {
       direction: "inbound",
     });
 
-    // ---- 6. 派发 AI 回复 ----
+    // ---- 7. 派发 AI 回复 ----
     // deliver 负责实际发送：框架当 originatingChannel === currentSurface 时
     // 不走 outbound adapter，直接调用此函数投递回复。
     const deliverReply = createNormalizedOutboundDeliverer(async (payload) => {
