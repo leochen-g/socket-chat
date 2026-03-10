@@ -118,6 +118,12 @@ async function enforceDmAccess(params: {
 // ---------------------------------------------------------------------------
 
 /**
+ * 记录已发送过"群未授权"提醒的群，键为 `${accountId}:${groupId}`。
+ * 进程内只提醒一次，避免每条消息都重复发送。
+ */
+const notifiedGroups = new Set<string>();
+
+/**
  * 规范化群/发送者 ID，去除前缀、空格、转小写，便于白名单对比。
  */
 function normalizeSocketChatId(raw: string): string {
@@ -128,43 +134,52 @@ function normalizeSocketChatId(raw: string): string {
  * 第一层：检查当前群是否被允许触发 AI。
  *
  * - groupPolicy="open"（默认）：所有群均可触发
- * - groupPolicy="allowlist"：仅 groups 列表中的群可触发
+ * - groupPolicy="allowlist"：仅 groups 列表中的群可触发，不在列表的群收到一次提醒
  * - groupPolicy="disabled"：禁止所有群消息触发 AI
+ *
+ * 返回 `{ allowed, notify }`:
+ *   - allowed=false + notify=true 表示首次拦截，调用方应发送提醒消息
+ *   - allowed=false + notify=false 表示已提醒过，静默忽略
  */
 function checkGroupAccess(params: {
   groupId: string;
   account: ResolvedSocketChatAccount;
   log: LogSink;
   accountId: string;
-}): boolean {
+}): { allowed: boolean; notify: boolean } {
   const { groupId, account, log, accountId } = params;
   const groupPolicy = account.config.groupPolicy ?? "open";
 
   if (groupPolicy === "disabled") {
     log.info(`[${accountId}] group msg blocked (groupPolicy=disabled)`);
-    return false;
+    return { allowed: false, notify: false };
   }
 
   if (groupPolicy === "open") {
-    return true;
+    return { allowed: true, notify: false };
   }
 
   // allowlist：检查 groupId 是否在 groups 名单中
   const groups = (account.config.groups ?? []).map(normalizeSocketChatId);
   if (groups.length === 0) {
-    // 配置了 allowlist 但没填 groups，视为全部禁止
     log.info(`[${accountId}] group ${groupId} blocked (groupPolicy=allowlist, groups is empty)`);
-    return false;
+    return { allowed: false, notify: false };
   }
 
   const normalizedGroupId = normalizeSocketChatId(groupId);
-  const allowed = groups.includes("*") || groups.includes(normalizedGroupId);
-  if (!allowed) {
-    log.info(
-      `[${accountId}] group ${groupId} not in groups allowlist (groupPolicy=allowlist)`,
-    );
+  if (groups.includes("*") || groups.includes(normalizedGroupId)) {
+    return { allowed: true, notify: false };
   }
-  return allowed;
+
+  log.info(`[${accountId}] group ${groupId} not in groups allowlist (groupPolicy=allowlist)`);
+
+  // 判断是否需要发送一次性提醒
+  const notifyKey = `${accountId}:${groupId}`;
+  if (notifiedGroups.has(notifyKey)) {
+    return { allowed: false, notify: false };
+  }
+  notifiedGroups.add(notifyKey);
+  return { allowed: false, notify: true };
 }
 
 /**
@@ -301,13 +316,16 @@ export async function handleInboundMessage(params: {
     const groupId = msg.groupId ?? msg.senderId;
 
     // 第一层：groupId 是否在允许列表中
-    const groupAccessAllowed = checkGroupAccess({
-      groupId,
-      account,
-      log,
-      accountId,
-    });
-    if (!groupAccessAllowed) return;
+    const groupAccess = checkGroupAccess({ groupId, account, log, accountId });
+    if (!groupAccess.allowed) {
+      if (groupAccess.notify) {
+        await sendReply(
+          `group:${groupId}`,
+          `此群（${msg.groupName ?? groupId}）未获授权使用 AI 服务。如需开启，请联系管理员将群 ID "${groupId}" 加入 groups 配置。`,
+        );
+      }
+      return;
+    }
 
     // 第二层：群内发送者是否被允许
     const senderAccessAllowed = checkGroupSenderAccess({
