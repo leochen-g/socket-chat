@@ -1,7 +1,7 @@
 import type { SocketChatAccountConfig, SocketChatTopLevelConfig } from "./config-schema.js";
 
 export const DEFAULT_ACCOUNT_ID = "default";
-export const DEFAULT_API_BASE_URL = "https://api-bot.aibotk.com";
+export const DEFAULT_API_BASE_URL = "https://shellbot.opendevelop.tech";
 
 /**
  * openclaw 配置的最小接口，仅包含 shellbot-chat 相关字段

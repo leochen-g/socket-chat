@@ -111,7 +111,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
     },
     uiHints: {
       apiKey: { label: "API Key", sensitive: true, help: "用于获取 MQTT 连接配置的 API Key" },
-      apiBaseUrl: { label: "API Base URL", help: "后端服务地址，留空使用默认值 https://api-bot.aibotk.com" },
+      apiBaseUrl: { label: "API Base URL", help: "后端服务地址，留空使用默认值" },
       dmPolicy: { label: "私信策略", help: "pairing=需配对, open=任意人, allowlist=白名单" },
       allowFrom: { label: "允许来源", help: "允许触发 AI 的发送者 ID 列表" },
       requireMention: { label: "群消息需@提及", help: "群组消息是否必须@提及机器人才触发" },
