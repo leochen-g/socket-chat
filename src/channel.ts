@@ -242,7 +242,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
     normalizeTarget: normalizeSocketChatTarget,
     targetResolver: {
       looksLikeId: looksLikeSocketChatTargetId,
-      hint: "<contactId|group:groupId|group:groupId@userId1,userId2>",
+      hint: "<contactId|group:groupId|group:groupId|userId1,userId2>",
     },
   },
 
