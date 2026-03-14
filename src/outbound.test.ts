@@ -81,25 +81,23 @@ describe("normalizeSocketChatTarget", () => {
 // ---------------------------------------------------------------------------
 
 describe("looksLikeSocketChatTargetId", () => {
-  it("recognizes wxid_ prefix", () => {
+  it("accepts any non-empty id", () => {
     expect(looksLikeSocketChatTargetId("wxid_abc123")).toBe(true);
-  });
-
-  it("recognizes roomid_ prefix", () => {
     expect(looksLikeSocketChatTargetId("roomid_xyz")).toBe(true);
-  });
-
-  it("recognizes group: prefix", () => {
     expect(looksLikeSocketChatTargetId("group:roomid_xxx")).toBe(true);
+    expect(looksLikeSocketChatTargetId("alice")).toBe(true);
+    expect(looksLikeSocketChatTargetId("user@example.com")).toBe(true);
   });
 
-  it("rejects arbitrary strings", () => {
-    expect(looksLikeSocketChatTargetId("alice")).toBe(false);
-    expect(looksLikeSocketChatTargetId("user@example.com")).toBe(false);
+  it("rejects empty string", () => {
     expect(looksLikeSocketChatTargetId("")).toBe(false);
   });
 
-  it("trims leading whitespace before checking", () => {
+  it("rejects whitespace-only string", () => {
+    expect(looksLikeSocketChatTargetId("   ")).toBe(false);
+  });
+
+  it("trims before checking", () => {
     expect(looksLikeSocketChatTargetId("  wxid_abc")).toBe(true);
   });
 });

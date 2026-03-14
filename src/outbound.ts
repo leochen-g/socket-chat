@@ -46,10 +46,10 @@ export function normalizeSocketChatTarget(raw: string): string | undefined {
 
 /**
  * 判断字符串是否像一个 socket-chat 原生 ID
- * wxid_xxx / roomid_xxx 格式，或带 group: 前缀
+ * socket-chat 的 chatId 格式不固定，任何非空字符串均视为原生 ID
  */
 export function looksLikeSocketChatTargetId(s: string): boolean {
-  return /^(wxid_|roomid_|group:)/.test(s.trim());
+  return s.trim().length > 0;
 }
 
 /**

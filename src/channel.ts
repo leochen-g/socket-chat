@@ -242,7 +242,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
     normalizeTarget: normalizeSocketChatTarget,
     targetResolver: {
       looksLikeId: looksLikeSocketChatTargetId,
-      hint: "<contactId|group:groupId|group:groupId@wxid_mention1,wxid_mention2>",
+      hint: "<contactId|group:groupId|group:groupId@userId1,userId2>",
     },
   },
 
@@ -386,7 +386,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
       "- socket-chat: to send to a group, use target format `group:<groupId>`. " +
         "To @mention users in a group: `group:<groupId>@<userId1>,<userId2>`.",
       "- socket-chat: to send an image, provide a public HTTP URL as the media parameter.",
-      "- socket-chat: direct messages use the sender's contactId (e.g. `wxid_xxx`) as the target.",
+      "- socket-chat: direct messages use the sender's contactId as the target.",
     ],
   },
 };
