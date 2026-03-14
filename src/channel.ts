@@ -383,8 +383,8 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
   // -------------------------------------------------------------------------
   agentPrompt: {
     messageToolHints: () => [
-      "- shellbot-chat: to send to a group, use target format `group:<groupId>`. " +
-        "To @mention users in a group: `group:<groupId>@<userId1>,<userId2>`.",
+      "- shellbot-chat: to send to a group, use target format `group:<groupId>` (groupId may contain @, e.g. `group:17581395450@chatroom`). " +
+        "To @mention users in a group: `group:<groupId>|<userId1>,<userId2>`.",
       "- shellbot-chat: to send an image, provide a public HTTP URL as the media parameter.",
       "- shellbot-chat: direct messages use the sender's contactId as the target.",
     ],
