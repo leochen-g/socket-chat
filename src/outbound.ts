@@ -34,19 +34,19 @@ export function parseSocketChatTarget(to: string): Omit<SocketChatOutboundPayloa
 }
 
 /**
- * 规范化 outbound 目标字符串（去掉前后空格，去掉 socket-chat: 前缀）
+ * 规范化 outbound 目标字符串（去掉前后空格，去掉 shellbot-chat: 前缀）
  */
 export function normalizeSocketChatTarget(raw: string): string | undefined {
   const trimmed = raw
     .trim()
-    .replace(/^socket-chat:/i, "")
+    .replace(/^shellbot-chat:/i, "")
     .trim();
   return trimmed || undefined;
 }
 
 /**
- * 判断字符串是否像一个 socket-chat 原生 ID
- * socket-chat 的 chatId 格式不固定，任何非空字符串均视为原生 ID
+ * 判断字符串是否像一个 shellbot-chat 原生 ID
+ * shellbot-chat 的 chatId 格式不固定，任何非空字符串均视为原生 ID
  */
 export function looksLikeSocketChatTargetId(s: string): boolean {
   return s.trim().length > 0;
@@ -114,12 +114,12 @@ export async function sendSocketChatMessage(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * socket-chat 出站适配器。
+ * shellbot-chat 出站适配器。
  *
  * 通过注册表查找当前账号的活跃 MQTT client 发送消息：
  *   - sendText：发送纯文字
  *   - sendMedia：优先发图片（type:2），无 mediaUrl 时退化为纯文字
- *   - resolveTarget：规范化目标地址（strip socket-chat: 前缀）
+ *   - resolveTarget：规范化目标地址（strip shellbot-chat: 前缀）
  */
 export const socketChatOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
@@ -128,7 +128,7 @@ export const socketChatOutbound: ChannelOutboundAdapter = {
   resolveTarget: ({ to }) => {
     const normalized = to ? normalizeSocketChatTarget(to) : undefined;
     if (!normalized) {
-      return { ok: false, error: new Error(`Invalid socket-chat target: "${to}"`) };
+      return { ok: false, error: new Error(`Invalid shellbot-chat target: "${to}"`) };
     }
     return { ok: true, to: normalized };
   },
@@ -140,14 +140,14 @@ export const socketChatOutbound: ChannelOutboundAdapter = {
 
     if (!client || !mqttConfig) {
       throw new Error(
-        `[socket-chat] No active MQTT connection for account "${resolvedAccountId}". ` +
+        `[shellbot-chat] No active MQTT connection for account "${resolvedAccountId}". ` +
         "Is the gateway running?",
       );
     }
 
     const payload = buildTextPayload(to, text);
     const result = await sendSocketChatMessage({ mqttClient: client, mqttConfig, payload });
-    return { channel: "socket-chat", messageId: result.messageId };
+    return { channel: "shellbot-chat", messageId: result.messageId };
   },
 
   sendMedia: async ({ to, text, mediaUrl, accountId }) => {
@@ -157,7 +157,7 @@ export const socketChatOutbound: ChannelOutboundAdapter = {
 
     if (!client || !mqttConfig) {
       throw new Error(
-        `[socket-chat] No active MQTT connection for account "${resolvedAccountId}".`,
+        `[shellbot-chat] No active MQTT connection for account "${resolvedAccountId}".`,
       );
     }
 
@@ -165,11 +165,11 @@ export const socketChatOutbound: ChannelOutboundAdapter = {
     if (mediaUrl) {
       const payload = buildMediaPayload(to, mediaUrl, text);
       const result = await sendSocketChatMessage({ mqttClient: client, mqttConfig, payload });
-      return { channel: "socket-chat", messageId: result.messageId };
+      return { channel: "shellbot-chat", messageId: result.messageId };
     }
 
     const payload = buildTextPayload(to, text);
     const result = await sendSocketChatMessage({ mqttClient: client, mqttConfig, payload });
-    return { channel: "socket-chat", messageId: result.messageId };
+    return { channel: "shellbot-chat", messageId: result.messageId };
   },
 };

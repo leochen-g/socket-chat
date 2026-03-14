@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 /**
- * channels.socket-chat 账号配置 Schema
+ * channels.shellbot-chat 账号配置 Schema
  *
  * 在 openclaw 配置文件（~/.openclaw/config.yaml）中对应：
  *
  * channels:
- *   socket-chat:
+ *   shellbot-chat:
  *     apiKey: "your-api-key"
  *     apiBaseUrl: "https://your-server.com"
  *     enabled: true
@@ -15,7 +15,7 @@ import { z } from "zod";
  *
  * 多账号：
  *   channels:
- *     socket-chat:
+ *     shellbot-chat:
  *       accounts:
  *         work:
  *           apiKey: "..."
@@ -68,7 +68,7 @@ export const SocketChatAccountConfigSchema = z.object({
 
 export type SocketChatAccountConfig = z.infer<typeof SocketChatAccountConfigSchema>;
 
-/** 顶层 channels.socket-chat 配置（包含 accounts 多账号支持） */
+/** 顶层 channels.shellbot-chat 配置（包含 accounts 多账号支持） */
 export const SocketChatTopLevelConfigSchema = SocketChatAccountConfigSchema.extend({
   accounts: z.record(z.string(), SocketChatAccountConfigSchema).optional(),
 });

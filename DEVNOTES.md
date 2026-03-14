@@ -1,4 +1,4 @@
-# socket-chat 开发笔记
+# shellbot-chat 开发笔记
 
 ## 调试经验
 
@@ -14,8 +14,8 @@
    → 开启 `forwardAllMsg=true`，或确认关键词配置。
 
 2. **插件版本是否是最新的？**
-   openclaw 配置中 `plugins.installs['socket-chat'].version` 显示安装版本。
-   修复代码后需要重新安装：`openclaw plugins install @openclaw-channel/socket-chat@x.x.x`
+   openclaw 配置中 `plugins.installs['shellbot-chat'].version` 显示安装版本。
+   修复代码后需要重新安装：`openclaw plugins install @openclaw-channel/shellbot-chat@x.x.x`
 
 3. **`isGroupMention` 等字段是否被正确解析？**
    见下节"parseInboundMessage 必须覆盖所有字段"。
@@ -59,7 +59,7 @@
 
 ```yaml
 channels:
-  socket-chat:
+  shellbot-chat:
     groupPolicy: allowlist
     groups:
       - 'R:10804599808581977'
@@ -74,7 +74,7 @@ channels:
 
 ```yaml
 channels:
-  socket-chat:
+  shellbot-chat:
     groupAllowFrom:
       - 'wxid_123456'    # 按 senderId 匹配
       - 'Alice'          # 按 senderName 匹配（大小写不敏感）
@@ -177,12 +177,12 @@ base64 编码后字符数 × 0.75 ≈ 原始字节数（忽略 padding 误差）
 const maxBytes = resolveChannelMediaMaxBytes({
   cfg: ctx.cfg,
   resolveChannelLimitMb: ({ cfg }) =>
-    (cfg as CoreConfig).channels?.["socket-chat"]?.mediaMaxMb,
+    (cfg as CoreConfig).channels?.["shellbot-chat"]?.mediaMaxMb,
   accountId,
 });
 ```
 
-目前 socket-chat 的 `CoreConfig` schema 中未定义 `mediaMaxMb` 字段，所以该回调返回 `undefined`，由框架使用内置默认值（通常为数十 MB）。如需自定义限制，在 `CoreConfig` schema 中添加 `mediaMaxMb?: number` 并在配置文件中设置即可。
+目前 shellbot-chat 的 `CoreConfig` schema 中未定义 `mediaMaxMb` 字段，所以该回调返回 `undefined`，由框架使用内置默认值（通常为数十 MB）。如需自定义限制，在 `CoreConfig` schema 中添加 `mediaMaxMb?: number` 并在配置文件中设置即可。
 
 **SDK stub 更新**
 
@@ -197,5 +197,5 @@ const maxBytes = resolveChannelMediaMaxBytes({
 3. `npx vitest run` 确认全部通过
 4. `git commit && git push`
 5. （如需发布 npm）`npm publish --access public`
-6. 在 openclaw 服务端：`openclaw plugins install @openclaw-channel/socket-chat@x.x.x`
+6. 在 openclaw 服务端：`openclaw plugins install @openclaw-channel/shellbot-chat@x.x.x`
 7. 重启 openclaw 使新版本生效

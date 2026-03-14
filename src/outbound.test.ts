@@ -60,10 +60,10 @@ describe("normalizeSocketChatTarget", () => {
     expect(normalizeSocketChatTarget("group:roomid_xxx")).toBe("group:roomid_xxx");
   });
 
-  it("strips socket-chat: prefix (case-insensitive)", () => {
-    expect(normalizeSocketChatTarget("socket-chat:wxid_abc")).toBe("wxid_abc");
-    expect(normalizeSocketChatTarget("Socket-Chat:wxid_abc")).toBe("wxid_abc");
-    expect(normalizeSocketChatTarget("SOCKET-CHAT:wxid_abc")).toBe("wxid_abc");
+  it("strips shellbot-chat: prefix (case-insensitive)", () => {
+    expect(normalizeSocketChatTarget("shellbot-chat:wxid_abc")).toBe("wxid_abc");
+    expect(normalizeSocketChatTarget("Shellbot-Chat:wxid_abc")).toBe("wxid_abc");
+    expect(normalizeSocketChatTarget("SHELLBOT-CHAT:wxid_abc")).toBe("wxid_abc");
   });
 
   it("returns undefined for empty/whitespace-only strings", () => {

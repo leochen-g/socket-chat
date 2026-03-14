@@ -43,14 +43,14 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
   // -------------------------------------------------------------------------
   // 身份标识
   // -------------------------------------------------------------------------
-  id: "socket-chat",
+  id: "shellbot-chat",
 
   meta: {
-    id: "socket-chat",
-    label: "Socket Chat",
-    selectionLabel: "Socket Chat (MQTT plugin)",
-    docsPath: "/channels/socket-chat",
-    docsLabel: "socket-chat",
+    id: "shellbot-chat",
+    label: "Shellbot Chat",
+    selectionLabel: "Shellbot Chat (MQTT plugin)",
+    docsPath: "/channels/shellbot-chat",
+    docsLabel: "shellbot-chat",
     blurb: "MQTT-based IM bridge; configure an API key to connect.",
     order: 90,
     quickstartAllowFrom: true,
@@ -150,7 +150,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
       allowFrom
         .map((e) => String(e).trim())
         .filter(Boolean)
-        .map((e) => e.replace(/^socket-chat:/i, "").toLowerCase()),
+        .map((e) => e.replace(/^shellbot-chat:/i, "").toLowerCase()),
 
     resolveDefaultTo: ({ cfg, accountId }) => {
       const account = resolveSocketChatAccount(cfg as CoreConfig, accountId ?? DEFAULT_ACCOUNT_ID);
@@ -169,7 +169,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
   // -------------------------------------------------------------------------
   pairing: {
     idLabel: "socketChatUserId",
-    normalizeAllowEntry: (entry) => entry.replace(/^(socket-chat|sc):/i, ""),
+    normalizeAllowEntry: (entry) => entry.replace(/^(shellbot-chat|sc):/i, ""),
     notifyApproval: async ({ cfg, id }) => {
       // 找到有活跃 MQTT 连接的账号发送配对批准通知
       // 优先用 default 账号，fallback 到任意有活跃连接的账号
@@ -196,18 +196,18 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
     resolveDmPolicy: ({ cfg, accountId, account }) => {
       const resolvedId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
       const usesAccountPath = Boolean(
-        (cfg as CoreConfig).channels?.["socket-chat"]?.accounts?.[resolvedId],
+        (cfg as CoreConfig).channels?.["shellbot-chat"]?.accounts?.[resolvedId],
       );
       const basePath = usesAccountPath
-        ? `channels.socket-chat.accounts.${resolvedId}.`
-        : "channels.socket-chat.";
+        ? `channels.shellbot-chat.accounts.${resolvedId}.`
+        : "channels.shellbot-chat.";
       return {
         policy: account.config.dmPolicy ?? "pairing",
         allowFrom: account.config.allowFrom ?? [],
         policyPath: `${basePath}dmPolicy`,
         allowFromPath: basePath,
-        approveHint: `Run: openclaw channels pair socket-chat <userId>`,
-        normalizeEntry: (raw) => raw.replace(/^(socket-chat|sc):/i, ""),
+        approveHint: `Run: openclaw channels pair shellbot-chat <userId>`,
+        normalizeEntry: (raw) => raw.replace(/^(shellbot-chat|sc):/i, ""),
       };
     },
 
@@ -215,7 +215,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
       const warnings: string[] = [];
       if (!account.config.allowFrom?.length && account.config.dmPolicy === "open") {
         warnings.push(
-          "- socket-chat: dmPolicy=\"open\" allows any sender to trigger AI. " +
+          "- shellbot-chat: dmPolicy=\"open\" allows any sender to trigger AI. " +
           "Consider setting dmPolicy=\"pairing\" or configuring allowFrom.",
         );
       }
@@ -273,14 +273,14 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
     collectStatusIssues: (snapshots): ChannelStatusIssue[] => {
       const issues: ChannelStatusIssue[] = [];
       for (const snap of snapshots) {
-        issues.push(...collectStatusIssuesFromLastError("socket-chat", [snap]));
+        issues.push(...collectStatusIssuesFromLastError("shellbot-chat", [snap]));
         if (!snap.configured) {
           issues.push({
-            channel: "socket-chat",
+            channel: "shellbot-chat",
             accountId: snap.accountId,
             kind: "config",
-            message: "socket-chat account is not configured (missing apiKey).",
-            fix: "Run: openclaw channels add socket-chat",
+            message: "shellbot-chat account is not configured (missing apiKey).",
+            fix: "Run: openclaw channels add shellbot-chat",
           });
         }
       }
@@ -319,12 +319,12 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
 
       if (!isSocketChatAccountConfigured(account)) {
         ctx.log?.error?.(
-          `[${account.accountId}] socket-chat not configured (missing apiKey)`,
+          `[${account.accountId}] shellbot-chat not configured (missing apiKey)`,
         );
         return;
       }
 
-      ctx.log?.info?.(`[${account.accountId}] starting socket-chat MQTT provider`);
+      ctx.log?.info?.(`[${account.accountId}] starting shellbot-chat MQTT provider`);
 
       return monitorSocketChatProviderWithRegistry({
         account,
@@ -349,7 +349,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
   // 配置变更热重载
   // -------------------------------------------------------------------------
   reload: {
-    configPrefixes: ["channels.socket-chat"],
+    configPrefixes: ["channels.shellbot-chat"],
   },
 
   // -------------------------------------------------------------------------
@@ -372,7 +372,7 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
 
     validateInput: ({ input }) => {
       if (!input.token?.trim()) {
-        return "socket-chat requires --token <apiKey>";
+        return "shellbot-chat requires --token <apiKey>";
       }
       return null;
     },
@@ -383,10 +383,10 @@ export const socketChatPlugin: ChannelPlugin<ResolvedSocketChatAccount> = {
   // -------------------------------------------------------------------------
   agentPrompt: {
     messageToolHints: () => [
-      "- socket-chat: to send to a group, use target format `group:<groupId>`. " +
+      "- shellbot-chat: to send to a group, use target format `group:<groupId>`. " +
         "To @mention users in a group: `group:<groupId>@<userId1>,<userId2>`.",
-      "- socket-chat: to send an image, provide a public HTTP URL as the media parameter.",
-      "- socket-chat: direct messages use the sender's contactId as the target.",
+      "- shellbot-chat: to send an image, provide a public HTTP URL as the media parameter.",
+      "- shellbot-chat: direct messages use the sender's contactId as the target.",
     ],
   },
 };

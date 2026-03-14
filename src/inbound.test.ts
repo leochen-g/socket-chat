@@ -112,7 +112,7 @@ function makeMockRuntime(overrides: Partial<MockChannelRuntime> = {}): MockChann
 function makeCtx(
   runtime: MockChannelRuntime,
   cfgOverride: CoreConfig = {
-    channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } },
+    channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } },
   },
 ) {
   return {
@@ -139,7 +139,7 @@ describe("handleInboundMessage — dmPolicy=open", () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" },
+        "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" },
       },
     });
     const sendReply = vi.fn(async () => {});
@@ -169,7 +169,7 @@ describe("handleInboundMessage — dmPolicy=pairing", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
+        "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
       },
     });
     const sendReply = vi.fn(async () => {});
@@ -184,7 +184,7 @@ describe("handleInboundMessage — dmPolicy=pairing", () => {
 
     expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
     expect(runtime.pairing.upsertPairingRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "wxid_unknown", channel: "socket-chat" }),
+      expect.objectContaining({ id: "wxid_unknown", channel: "shellbot-chat" }),
     );
     expect(sendReply).toHaveBeenCalledOnce();
   });
@@ -195,7 +195,7 @@ describe("handleInboundMessage — dmPolicy=pairing", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
+        "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
       },
     });
 
@@ -216,7 +216,7 @@ describe("handleInboundMessage — dmPolicy=pairing", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           dmPolicy: "pairing",
@@ -244,7 +244,7 @@ describe("handleInboundMessage — dmPolicy=pairing", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
+        "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
       },
     });
     const sendReply = vi.fn(async () => {});
@@ -268,7 +268,7 @@ describe("handleInboundMessage — dmPolicy=pairing", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           dmPolicy: "pairing",
@@ -300,7 +300,7 @@ describe("handleInboundMessage — dmPolicy=allowlist", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           dmPolicy: "allowlist",
@@ -329,7 +329,7 @@ describe("handleInboundMessage — dmPolicy=allowlist", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           dmPolicy: "allowlist",
@@ -360,7 +360,7 @@ describe("handleInboundMessage — group messages", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           requireMention: true,
@@ -390,7 +390,7 @@ describe("handleInboundMessage — group messages", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           requireMention: true,
@@ -420,7 +420,7 @@ describe("handleInboundMessage — group messages", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           requireMention: true,
@@ -449,7 +449,7 @@ describe("handleInboundMessage — group messages", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           requireMention: true,
@@ -478,7 +478,7 @@ describe("handleInboundMessage — group messages", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           requireMention: false,
@@ -509,7 +509,7 @@ describe("handleInboundMessage — group messages", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": {
+        "shellbot-chat": {
           apiKey: "k",
           apiBaseUrl: "https://x.com",
           dmPolicy: "pairing",
@@ -550,7 +550,7 @@ describe("handleInboundMessage — media messages", () => {
     });
 
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
     await handleInboundMessage({
@@ -596,7 +596,7 @@ describe("handleInboundMessage — media messages", () => {
     });
 
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
     await handleInboundMessage({
@@ -627,7 +627,7 @@ describe("handleInboundMessage — media messages", () => {
     });
 
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
     // minimal valid JPEG-ish base64
@@ -666,7 +666,7 @@ describe("handleInboundMessage — media messages", () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
       // 1 MB limit
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open", mediaMaxMb: 1 } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open", mediaMaxMb: 1 } },
     });
     const log = { ...ctx.log, warn: vi.fn() };
 
@@ -695,7 +695,7 @@ describe("handleInboundMessage — media messages", () => {
   it("does not call fetchRemoteMedia for base64 data URLs (uses saveMediaBuffer directly)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
     const fakeBase64 = Buffer.from("img-bytes").toString("base64");
@@ -719,7 +719,7 @@ describe("handleInboundMessage — media messages", () => {
   it("does not call fetchRemoteMedia when url is absent", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
     await handleInboundMessage({
@@ -741,7 +741,7 @@ describe("handleInboundMessage — media messages", () => {
     runtime.media.fetchRemoteMedia.mockRejectedValue(new Error("network timeout"));
 
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
     const log = { ...ctx.log, warn: vi.fn() };
 
@@ -774,7 +774,7 @@ describe("handleInboundMessage — media messages", () => {
     runtime.media.saveMediaBuffer.mockRejectedValue(new Error("disk full"));
 
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
     const log = { ...ctx.log, warn: vi.fn() };
 
@@ -799,7 +799,7 @@ describe("handleInboundMessage — media messages", () => {
   it("does not skip image-only message (content empty, url present)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
     await handleInboundMessage({
@@ -820,7 +820,7 @@ describe("handleInboundMessage — media messages", () => {
   it("uses content as body when both content and url are present", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
     const content = "【图片消息】\n文件名：img.jpg\n下载链接：https://oss.example.com/img.jpg";
@@ -845,7 +845,7 @@ describe("handleInboundMessage — media messages", () => {
   it("falls back to <media:type> placeholder as body when content is empty", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
     });
 
     await handleInboundMessage({
@@ -926,7 +926,7 @@ describe("handleInboundMessage — edge cases", () => {
 
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" },
+        "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" },
       },
     });
 
@@ -939,10 +939,10 @@ describe("handleInboundMessage — edge cases", () => {
     });
 
     expect(runtime.activity.record).toHaveBeenCalledWith(
-      expect.objectContaining({ direction: "inbound", channel: "socket-chat" }),
+      expect.objectContaining({ direction: "inbound", channel: "shellbot-chat" }),
     );
     expect(runtime.activity.record).toHaveBeenCalledWith(
-      expect.objectContaining({ direction: "outbound", channel: "socket-chat" }),
+      expect.objectContaining({ direction: "outbound", channel: "shellbot-chat" }),
     );
   });
 });
@@ -959,7 +959,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
   it("allows all groups when groupPolicy=open (default)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", requireMention: false } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", requireMention: false } },
     });
     await handleInboundMessage({
       msg: makeMsg({ isGroup: true, groupId: "R:any_group", robotId: "robot_abc", isGroupMention: true }),
@@ -971,7 +971,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
   it("blocks all groups when groupPolicy=disabled (no notification)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "disabled" } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "disabled" } },
     });
     const sendReply = vi.fn(async () => {});
     await handleInboundMessage({
@@ -986,7 +986,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
       channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"], requireMention: false },
+        "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"], requireMention: false },
       },
     });
     await handleInboundMessage({
@@ -999,7 +999,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
   it("blocks unlisted group without sending notification (notify branch commented out)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
     });
     const sendReply = vi.fn(async () => {});
     await handleInboundMessage({
@@ -1014,7 +1014,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
   it("silently blocks repeated messages from same unlisted group", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
     });
     const sendReply = vi.fn(async () => {});
     const msg = makeMsg({ isGroup: true, groupId: "R:notify_once_group", isGroupMention: true });
@@ -1027,7 +1027,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
   it("blocks when groupPolicy=allowlist and groups is empty (no notification)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: [] } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: [] } },
     });
     const sendReply = vi.fn(async () => {});
     await handleInboundMessage({
@@ -1041,7 +1041,7 @@ describe("handleInboundMessage — group access control (tier 1: groupId)", () =
   it("allows wildcard '*' in groups list", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["*"], requireMention: false } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["*"], requireMention: false } },
     });
     await handleInboundMessage({
       msg: makeMsg({ isGroup: true, groupId: "R:any_group", robotId: "robot_abc", isGroupMention: true }),
@@ -1059,7 +1059,7 @@ describe("handleInboundMessage — group access control (tier 2: sender)", () =>
   it("allows all senders when groupAllowFrom is empty", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", requireMention: false } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", requireMention: false } },
     });
     await handleInboundMessage({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_anyone", isGroupMention: true }),
@@ -1071,7 +1071,7 @@ describe("handleInboundMessage — group access control (tier 2: sender)", () =>
   it("allows sender matching groupAllowFrom by ID", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["wxid_allowed"], requireMention: false } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["wxid_allowed"], requireMention: false } },
     });
     await handleInboundMessage({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_allowed", isGroupMention: true }),
@@ -1083,7 +1083,7 @@ describe("handleInboundMessage — group access control (tier 2: sender)", () =>
   it("allows sender matching groupAllowFrom by name (case-insensitive)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["alice"], requireMention: false } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["alice"], requireMention: false } },
     });
     await handleInboundMessage({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_unknown", senderName: "Alice", isGroupMention: true }),
@@ -1095,7 +1095,7 @@ describe("handleInboundMessage — group access control (tier 2: sender)", () =>
   it("blocks sender not in groupAllowFrom (silent drop)", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["wxid_allowed"], requireMention: false } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["wxid_allowed"], requireMention: false } },
     });
     const sendReply = vi.fn(async () => {});
     await handleInboundMessage({
@@ -1109,7 +1109,7 @@ describe("handleInboundMessage — group access control (tier 2: sender)", () =>
   it("allows wildcard '*' in groupAllowFrom", async () => {
     const runtime = makeMockRuntime();
     const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["*"], requireMention: false } },
+      channels: { "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["*"], requireMention: false } },
     });
     await handleInboundMessage({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_anyone", isGroupMention: true }),

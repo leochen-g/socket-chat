@@ -28,7 +28,7 @@ function cfg(top: CoreConfig["channels"]): CoreConfig {
 describe("resolveSocketChatAccount", () => {
   it("reads top-level fields as default account", () => {
     const c = cfg({
-      "socket-chat": { apiKey: "k1", apiBaseUrl: "https://example.com" },
+      "shellbot-chat": { apiKey: "k1", apiBaseUrl: "https://example.com" },
     });
     const account = resolveSocketChatAccount(c, DEFAULT_ACCOUNT_ID);
     expect(account.accountId).toBe("default");
@@ -39,7 +39,7 @@ describe("resolveSocketChatAccount", () => {
 
   it("reads named account from accounts map", () => {
     const c = cfg({
-      "socket-chat": {
+      "shellbot-chat": {
         apiKey: "top-key",
         accounts: {
           work: { apiKey: "work-key", apiBaseUrl: "https://work.example.com" },
@@ -53,7 +53,7 @@ describe("resolveSocketChatAccount", () => {
   });
 
   it("returns empty account for unknown accountId", () => {
-    const c = cfg({ "socket-chat": { apiKey: "k1" } });
+    const c = cfg({ "shellbot-chat": { apiKey: "k1" } });
     const account = resolveSocketChatAccount(c, "nonexistent");
     expect(account.accountId).toBe("nonexistent");
     expect(account.apiKey).toBeUndefined();
@@ -62,7 +62,7 @@ describe("resolveSocketChatAccount", () => {
 
   it("trims whitespace from apiKey and apiBaseUrl", () => {
     const c = cfg({
-      "socket-chat": { apiKey: "  trimmed  ", apiBaseUrl: "  https://x.com  " },
+      "shellbot-chat": { apiKey: "  trimmed  ", apiBaseUrl: "  https://x.com  " },
     });
     const account = resolveSocketChatAccount(c, DEFAULT_ACCOUNT_ID);
     expect(account.apiKey).toBe("trimmed");
@@ -70,13 +70,13 @@ describe("resolveSocketChatAccount", () => {
   });
 
   it("defaults enabled to true when not set", () => {
-    const c = cfg({ "socket-chat": { apiKey: "k1" } });
+    const c = cfg({ "shellbot-chat": { apiKey: "k1" } });
     const account = resolveSocketChatAccount(c, DEFAULT_ACCOUNT_ID);
     expect(account.enabled).toBe(true);
   });
 
   it("respects enabled=false", () => {
-    const c = cfg({ "socket-chat": { apiKey: "k1", enabled: false } });
+    const c = cfg({ "shellbot-chat": { apiKey: "k1", enabled: false } });
     const account = resolveSocketChatAccount(c, DEFAULT_ACCOUNT_ID);
     expect(account.enabled).toBe(false);
   });
@@ -96,7 +96,7 @@ describe("resolveSocketChatAccount", () => {
 describe("isSocketChatAccountConfigured", () => {
   it("returns true when both apiKey and apiBaseUrl are set", () => {
     const account = resolveSocketChatAccount(
-      cfg({ "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } }),
+      cfg({ "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } }),
       DEFAULT_ACCOUNT_ID,
     );
     expect(isSocketChatAccountConfigured(account)).toBe(true);
@@ -104,7 +104,7 @@ describe("isSocketChatAccountConfigured", () => {
 
   it("returns false when apiKey is missing", () => {
     const account = resolveSocketChatAccount(
-      cfg({ "socket-chat": { apiBaseUrl: "https://x.com" } }),
+      cfg({ "shellbot-chat": { apiBaseUrl: "https://x.com" } }),
       DEFAULT_ACCOUNT_ID,
     );
     expect(isSocketChatAccountConfigured(account)).toBe(false);
@@ -112,7 +112,7 @@ describe("isSocketChatAccountConfigured", () => {
 
   it("returns true when apiKey is set (apiBaseUrl has default)", () => {
     const account = resolveSocketChatAccount(
-      cfg({ "socket-chat": { apiKey: "k" } }),
+      cfg({ "shellbot-chat": { apiKey: "k" } }),
       DEFAULT_ACCOUNT_ID,
     );
     expect(isSocketChatAccountConfigured(account)).toBe(true);
@@ -130,13 +130,13 @@ describe("isSocketChatAccountConfigured", () => {
 
 describe("listSocketChatAccountIds", () => {
   it("returns [default] when top-level apiKey is set", () => {
-    const c = cfg({ "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } });
+    const c = cfg({ "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } });
     expect(listSocketChatAccountIds(c)).toEqual(["default"]);
   });
 
   it("returns named account ids when only accounts map is set", () => {
     const c = cfg({
-      "socket-chat": {
+      "shellbot-chat": {
         accounts: {
           alpha: { apiKey: "k1", apiBaseUrl: "https://a.com" },
           beta: { apiKey: "k2", apiBaseUrl: "https://b.com" },
@@ -151,7 +151,7 @@ describe("listSocketChatAccountIds", () => {
 
   it("prepends default when top-level apiKey and named accounts both exist", () => {
     const c = cfg({
-      "socket-chat": {
+      "shellbot-chat": {
         apiKey: "top-k",
         apiBaseUrl: "https://x.com",
         accounts: { work: { apiKey: "work-k", apiBaseUrl: "https://work.com" } },
@@ -162,7 +162,7 @@ describe("listSocketChatAccountIds", () => {
     expect(ids).toContain("work");
   });
 
-  it("returns [] when no socket-chat config at all", () => {
+  it("returns [] when no shellbot-chat config at all", () => {
     expect(listSocketChatAccountIds({})).toEqual([]);
   });
 });
@@ -174,7 +174,7 @@ describe("listSocketChatAccountIds", () => {
 describe("resolveDefaultSocketChatAccountId", () => {
   it("returns first account id", () => {
     const c = cfg({
-      "socket-chat": {
+      "shellbot-chat": {
         accounts: { alpha: { apiKey: "k", apiBaseUrl: "https://a.com" } },
       },
     });
@@ -211,25 +211,25 @@ describe("normalizeAccountId", () => {
 
 describe("setSocketChatAccountEnabled", () => {
   it("sets enabled on top-level (default account)", () => {
-    const c: CoreConfig = cfg({ "socket-chat": { apiKey: "k" } });
+    const c: CoreConfig = cfg({ "shellbot-chat": { apiKey: "k" } });
     const updated = setSocketChatAccountEnabled({ cfg: c, accountId: "default", enabled: false });
-    expect(updated.channels?.["socket-chat"]?.enabled).toBe(false);
+    expect(updated.channels?.["shellbot-chat"]?.enabled).toBe(false);
   });
 
   it("sets enabled on named account", () => {
     const c: CoreConfig = cfg({
-      "socket-chat": {
+      "shellbot-chat": {
         accounts: { work: { apiKey: "k", apiBaseUrl: "https://x.com" } },
       },
     });
     const updated = setSocketChatAccountEnabled({ cfg: c, accountId: "work", enabled: false });
-    expect(updated.channels?.["socket-chat"]?.accounts?.["work"]?.enabled).toBe(false);
+    expect(updated.channels?.["shellbot-chat"]?.accounts?.["work"]?.enabled).toBe(false);
   });
 
   it("does not mutate original config", () => {
-    const c: CoreConfig = cfg({ "socket-chat": { apiKey: "k" } });
+    const c: CoreConfig = cfg({ "shellbot-chat": { apiKey: "k" } });
     setSocketChatAccountEnabled({ cfg: c, accountId: "default", enabled: false });
-    expect(c.channels?.["socket-chat"]?.enabled).toBeUndefined();
+    expect(c.channels?.["shellbot-chat"]?.enabled).toBeUndefined();
   });
 });
 
@@ -239,15 +239,15 @@ describe("setSocketChatAccountEnabled", () => {
 
 describe("deleteSocketChatAccount", () => {
   it("clears apiKey/apiBaseUrl on default account", () => {
-    const c: CoreConfig = cfg({ "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } });
+    const c: CoreConfig = cfg({ "shellbot-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } });
     const updated = deleteSocketChatAccount({ cfg: c, accountId: "default" });
-    expect(updated.channels?.["socket-chat"]?.apiKey).toBeUndefined();
-    expect(updated.channels?.["socket-chat"]?.apiBaseUrl).toBeUndefined();
+    expect(updated.channels?.["shellbot-chat"]?.apiKey).toBeUndefined();
+    expect(updated.channels?.["shellbot-chat"]?.apiBaseUrl).toBeUndefined();
   });
 
   it("removes named account from accounts map", () => {
     const c: CoreConfig = cfg({
-      "socket-chat": {
+      "shellbot-chat": {
         accounts: {
           work: { apiKey: "k", apiBaseUrl: "https://x.com" },
           home: { apiKey: "k2", apiBaseUrl: "https://y.com" },
@@ -255,8 +255,8 @@ describe("deleteSocketChatAccount", () => {
       },
     });
     const updated = deleteSocketChatAccount({ cfg: c, accountId: "work" });
-    expect(updated.channels?.["socket-chat"]?.accounts?.["work"]).toBeUndefined();
-    expect(updated.channels?.["socket-chat"]?.accounts?.["home"]).toBeDefined();
+    expect(updated.channels?.["shellbot-chat"]?.accounts?.["work"]).toBeUndefined();
+    expect(updated.channels?.["shellbot-chat"]?.accounts?.["home"]).toBeDefined();
   });
 });
 
@@ -273,10 +273,10 @@ describe("applySocketChatAccountConfig", () => {
       apiBaseUrl: "https://new.com",
       name: "My Bot",
     });
-    expect(updated.channels?.["socket-chat"]?.apiKey).toBe("new-key");
-    expect(updated.channels?.["socket-chat"]?.apiBaseUrl).toBe("https://new.com");
-    expect(updated.channels?.["socket-chat"]?.name).toBe("My Bot");
-    expect(updated.channels?.["socket-chat"]?.enabled).toBe(true);
+    expect(updated.channels?.["shellbot-chat"]?.apiKey).toBe("new-key");
+    expect(updated.channels?.["shellbot-chat"]?.apiBaseUrl).toBe("https://new.com");
+    expect(updated.channels?.["shellbot-chat"]?.name).toBe("My Bot");
+    expect(updated.channels?.["shellbot-chat"]?.enabled).toBe(true);
   });
 
   it("writes to named account in accounts map", () => {
@@ -286,7 +286,7 @@ describe("applySocketChatAccountConfig", () => {
       apiKey: "work-key",
       apiBaseUrl: "https://work.com",
     });
-    const workCfg = updated.channels?.["socket-chat"]?.accounts?.["work"];
+    const workCfg = updated.channels?.["shellbot-chat"]?.accounts?.["work"];
     expect(workCfg?.apiKey).toBe("work-key");
     expect(workCfg?.apiBaseUrl).toBe("https://work.com");
     expect(workCfg?.enabled).toBe(true);
@@ -299,12 +299,12 @@ describe("applySocketChatAccountConfig", () => {
       apiKey: "k",
       apiBaseUrl: "https://x.com",
     });
-    expect(updated.channels?.["socket-chat"]?.name).toBeUndefined();
+    expect(updated.channels?.["shellbot-chat"]?.name).toBeUndefined();
   });
 
   it("merges with existing config (preserves unrelated fields)", () => {
     const c: CoreConfig = cfg({
-      "socket-chat": { apiKey: "old", apiBaseUrl: "https://old.com", dmPolicy: "open" },
+      "shellbot-chat": { apiKey: "old", apiBaseUrl: "https://old.com", dmPolicy: "open" },
     });
     const updated = applySocketChatAccountConfig({
       cfg: c,
@@ -312,7 +312,7 @@ describe("applySocketChatAccountConfig", () => {
       apiKey: "new",
       apiBaseUrl: "https://new.com",
     });
-    expect(updated.channels?.["socket-chat"]?.dmPolicy).toBe("open");
-    expect(updated.channels?.["socket-chat"]?.apiKey).toBe("new");
+    expect(updated.channels?.["shellbot-chat"]?.dmPolicy).toBe("open");
+    expect(updated.channels?.["shellbot-chat"]?.apiKey).toBe("new");
   });
 });

@@ -1,4 +1,4 @@
-# socket-chat OpenClaw Extension
+# shellbot-chat OpenClaw Extension
 
 通过 **MQTT** 协议与自定义 IM 系统对接的 OpenClaw channel plugin。
 
@@ -7,8 +7,8 @@
 ## 工作原理
 
 ```
-IM 平台 ──MQTT──► reciveTopic ──► socket-chat plugin ──► OpenClaw AI
-OpenClaw AI ──► socket-chat plugin ──MQTT──► sendTopic ──► IM 平台
+IM 平台 ──MQTT──► reciveTopic ──► shellbot-chat plugin ──► OpenClaw AI
+OpenClaw AI ──► shellbot-chat plugin ──MQTT──► sendTopic ──► IM 平台
 ```
 
 1. 插件启动时，调用 `GET /api/openclaw/chat/config?apikey={apiKey}` 获取 MQTT 连接参数
@@ -22,10 +22,10 @@ OpenClaw AI ──► socket-chat plugin ──MQTT──► sendTopic ──►
 
 ```bash
 # 从 npm 安装
-openclaw plugins install @openclaw-channel/socket-chat
+openclaw plugins install @openclaw-channel/shellbot-chat
 
 # 或者本地开发时从路径安装
-openclaw plugins install /path/to/socket-chat
+openclaw plugins install /path/to/shellbot-chat
 ```
 
 ---
@@ -35,7 +35,7 @@ openclaw plugins install /path/to/socket-chat
 apiKey 从微秘书平台[个人中心](https://wechat.aibotk.com/user/info)获取
 
 ```bash
-openclaw channels add --channel socket-chat --token <apiKey>
+openclaw channels add --channel shellbot-chat --token <apiKey>
 ```
 
 ---
@@ -46,7 +46,7 @@ openclaw channels add --channel socket-chat --token <apiKey>
 
 ```yaml
 channels:
-  socket-chat:
+  shellbot-chat:
     apiKey: "your-api-key"
     enabled: true
 
@@ -75,7 +75,7 @@ channels:
 
 ```yaml
 channels:
-  socket-chat:
+  shellbot-chat:
     groupPolicy: allowlist
     groups:
       - "R:10804599808581977"
@@ -88,7 +88,7 @@ channels:
 
 ```yaml
 channels:
-  socket-chat:
+  shellbot-chat:
     groupAllowFrom:
       - "wxid_123456"   # 按 senderId 精确匹配
       - "Alice"         # 按 senderName 匹配
@@ -110,7 +110,7 @@ channels:
 
 ```yaml
 channels:
-  socket-chat:
+  shellbot-chat:
     accounts:
       work:
         apiKey: "api-key"
@@ -329,8 +329,8 @@ h5 链接消息（携带 `mediaInfo`）：
 | `group:roomid_xxx@wxid_a,wxid_b` | 发到群组并 @提及用户 |
 
 ```bash
-openclaw message send "Hello" --channel socket-chat --to wxid_user123
-openclaw message send "Hello group" --channel socket-chat --to group:roomid_xxx
+openclaw message send "Hello" --channel shellbot-chat --to wxid_user123
+openclaw message send "Hello group" --channel shellbot-chat --to group:roomid_xxx
 ```
 
 ---
@@ -338,7 +338,7 @@ openclaw message send "Hello group" --channel socket-chat --to group:roomid_xxx
 ## 项目结构
 
 ```
-socket-chat/
+shellbot-chat/
 ├── index.ts              # 插件入口（register）
 ├── package.json          # 包配置，含 openclaw.extensions
 ├── tsconfig.json

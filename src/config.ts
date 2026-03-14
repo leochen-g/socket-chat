@@ -4,11 +4,11 @@ export const DEFAULT_ACCOUNT_ID = "default";
 export const DEFAULT_API_BASE_URL = "https://api-bot.aibotk.com";
 
 /**
- * openclaw 配置的最小接口，仅包含 socket-chat 相关字段
+ * openclaw 配置的最小接口，仅包含 shellbot-chat 相关字段
  */
 export type CoreConfig = {
   channels?: {
-    "socket-chat"?: SocketChatTopLevelConfig;
+    "shellbot-chat"?: SocketChatTopLevelConfig;
   };
 };
 
@@ -28,7 +28,7 @@ function getRawAccountConfig(
   cfg: CoreConfig,
   accountId: string,
 ): SocketChatAccountConfig {
-  const top = cfg.channels?.["socket-chat"] ?? {};
+  const top = cfg.channels?.["shellbot-chat"] ?? {};
   if (accountId === DEFAULT_ACCOUNT_ID) {
     // 顶层字段即 default 账号
     const { accounts: _accounts, ...rest } = top;
@@ -46,7 +46,7 @@ export function resolveSocketChatAccount(
 ): ResolvedSocketChatAccount {
   const raw = getRawAccountConfig(cfg, accountId);
   // 顶层 apiKey/apiBaseUrl 作为 default 账号 fallback
-  const top = cfg.channels?.["socket-chat"] ?? {};
+  const top = cfg.channels?.["shellbot-chat"] ?? {};
   const apiKey =
     raw.apiKey?.trim() ||
     (accountId === DEFAULT_ACCOUNT_ID ? top.apiKey?.trim() : undefined);
@@ -69,7 +69,7 @@ export function resolveSocketChatAccount(
  * 列出配置中所有账号 ID
  */
 export function listSocketChatAccountIds(cfg: CoreConfig): string[] {
-  const top = cfg.channels?.["socket-chat"];
+  const top = cfg.channels?.["shellbot-chat"];
   if (!top) return [];
   const named = Object.keys(top.accounts ?? {});
   // 检查顶层是否有 apiKey（即 default 账号被配置了）
@@ -119,13 +119,13 @@ export function setSocketChatAccountEnabled(params: {
   enabled: boolean;
 }): CoreConfig {
   const { cfg, accountId, enabled } = params;
-  const top = cfg.channels?.["socket-chat"] ?? {};
+  const top = cfg.channels?.["shellbot-chat"] ?? {};
   if (accountId === DEFAULT_ACCOUNT_ID) {
     return {
       ...cfg,
       channels: {
         ...cfg.channels,
-        "socket-chat": { ...top, enabled },
+        "shellbot-chat": { ...top, enabled },
       },
     };
   }
@@ -133,7 +133,7 @@ export function setSocketChatAccountEnabled(params: {
     ...cfg,
     channels: {
       ...cfg.channels,
-      "socket-chat": {
+      "shellbot-chat": {
         ...top,
         accounts: {
           ...top.accounts,
@@ -152,7 +152,7 @@ export function deleteSocketChatAccount(params: {
   accountId: string;
 }): CoreConfig {
   const { cfg, accountId } = params;
-  const top = { ...(cfg.channels?.["socket-chat"] ?? {}) };
+  const top = { ...(cfg.channels?.["shellbot-chat"] ?? {}) };
   if (accountId === DEFAULT_ACCOUNT_ID) {
     // 清除顶层凭证字段
     delete (top as Record<string, unknown>).apiKey;
@@ -165,7 +165,7 @@ export function deleteSocketChatAccount(params: {
   }
   return {
     ...cfg,
-    channels: { ...cfg.channels, "socket-chat": top },
+    channels: { ...cfg.channels, "shellbot-chat": top },
   };
 }
 
@@ -180,13 +180,13 @@ export function applySocketChatAccountConfig(params: {
   name?: string;
 }): CoreConfig {
   const { cfg, accountId, apiKey, apiBaseUrl, name } = params;
-  const top = cfg.channels?.["socket-chat"] ?? {};
+  const top = cfg.channels?.["shellbot-chat"] ?? {};
   if (accountId === DEFAULT_ACCOUNT_ID) {
     return {
       ...cfg,
       channels: {
         ...cfg.channels,
-        "socket-chat": {
+        "shellbot-chat": {
           ...top,
           apiKey,
           ...(apiBaseUrl ? { apiBaseUrl } : {}),
@@ -200,7 +200,7 @@ export function applySocketChatAccountConfig(params: {
     ...cfg,
     channels: {
       ...cfg.channels,
-      "socket-chat": {
+      "shellbot-chat": {
         ...top,
         accounts: {
           ...top.accounts,

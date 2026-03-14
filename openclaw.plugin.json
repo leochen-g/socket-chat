@@ -1,6 +1,6 @@
 {
-  "id": "socket-chat",
-  "channels": ["socket-chat"],
+  "id": "shellbot-chat",
+  "channels": ["shellbot-chat"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

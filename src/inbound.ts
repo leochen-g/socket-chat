@@ -49,12 +49,12 @@ async function enforceDmAccess(params: {
 
   // 读取配置中的静态 allowFrom 白名单
   const configAllowFrom = (account.config.allowFrom ?? []).map((e) =>
-    e.replace(/^(socket-chat|sc):/i, "").toLowerCase(),
+    e.replace(/^(shellbot-chat|sc):/i, "").toLowerCase(),
   );
 
   // 读取动态 pairing 已批准名单（存储在 ~/.openclaw/credentials/ 下）
   const pairingAllowFrom: string[] = await channelRuntime.pairing.readAllowFromStore({
-    channel: "socket-chat",
+    channel: "shellbot-chat",
     accountId,
   });
 
@@ -90,7 +90,7 @@ async function enforceDmAccess(params: {
   // pairing 策略：创建配对请求，并向发送者发送提示
   try {
     const { code, created } = await channelRuntime.pairing.upsertPairingRequest({
-      channel: "socket-chat",
+      channel: "shellbot-chat",
       id: msg.senderId,
       accountId,
       meta: {
@@ -103,7 +103,7 @@ async function enforceDmAccess(params: {
         `[${accountId}] pairing request created for ${msg.senderId} (code=${code})`,
       );
       const pairingMessage = channelRuntime.pairing.buildPairingReply({
-        channel: "socket-chat",
+        channel: "shellbot-chat",
         idLine: `Your Socket Chat user id: ${msg.senderId}`,
         code,
       });
@@ -138,7 +138,7 @@ export function _resetNotifiedGroupsForTest(): void {
  * 规范化群/发送者 ID，去除前缀、空格、转小写，便于白名单对比。
  */
 function normalizeSocketChatId(raw: string): string {
-  return raw.replace(/^(socket-chat|sc):/i, "").trim().toLowerCase();
+  return raw.replace(/^(shellbot-chat|sc):/i, "").trim().toLowerCase();
 }
 
 /**
@@ -296,7 +296,7 @@ export async function handleInboundMessage(params: {
   const channelRuntime = ctx.channelRuntime;
 
   if (!channelRuntime) {
-    log.warn(`[socket-chat:${accountId}] channelRuntime not available — cannot dispatch AI reply`);
+    log.warn(`[shellbot-chat:${accountId}] channelRuntime not available — cannot dispatch AI reply`);
     return;
   }
 
@@ -382,7 +382,7 @@ export async function handleInboundMessage(params: {
       const maxBytes = resolveChannelMediaMaxBytes({
         cfg: ctx.cfg,
         resolveChannelLimitMb: ({ cfg }) =>
-          (cfg as CoreConfig).channels?.["socket-chat"]?.mediaMaxMb,
+          (cfg as CoreConfig).channels?.["shellbot-chat"]?.mediaMaxMb,
         accountId,
       });
 
@@ -442,7 +442,7 @@ export async function handleInboundMessage(params: {
   // ---- 4. 路由 ----
   const route = channelRuntime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
-    channel: "socket-chat",
+    channel: "shellbot-chat",
     accountId,
     peer: {
       kind: msg.isGroup ? "group" : "direct",
@@ -456,9 +456,9 @@ export async function handleInboundMessage(params: {
 
   // ---- 5. 构建 MsgContext ----
   const fromLabel = msg.isGroup
-    ? `socket-chat:room:${peerId}`
-    : `socket-chat:${msg.senderId}`;
-  const toLabel = `socket-chat:${replyTarget}`;
+    ? `shellbot-chat:room:${peerId}`
+    : `shellbot-chat:${msg.senderId}`;
+  const toLabel = `shellbot-chat:${replyTarget}`;
   const conversationLabel = msg.isGroup
     ? (msg.groupName ?? peerId)
     : (msg.senderName || msg.senderId);
@@ -479,9 +479,9 @@ export async function handleInboundMessage(params: {
     ConversationLabel: conversationLabel,
     Timestamp: msg.timestamp,
     MessageSid: msg.messageId,
-    Provider: "socket-chat",
-    Surface: "socket-chat",
-    OriginatingChannel: "socket-chat",
+    Provider: "shellbot-chat",
+    Surface: "shellbot-chat",
+    OriginatingChannel: "shellbot-chat",
     OriginatingTo: toLabel,
     ...(msg.isGroup
       ? { GroupSubject: msg.groupName ?? peerId }
@@ -504,7 +504,7 @@ export async function handleInboundMessage(params: {
 
     // 记录 inbound 活动
     channelRuntime.activity.record({
-      channel: "socket-chat",
+      channel: "shellbot-chat",
       accountId,
       direction: "inbound",
     });
@@ -526,14 +526,14 @@ export async function handleInboundMessage(params: {
       dispatcherOptions: {
         deliver: deliverReply,
         onError: (err, info) => {
-          log.error(`[${accountId}] socket-chat ${info.kind} reply failed: ${String(err)}`);
+          log.error(`[${accountId}] shellbot-chat ${info.kind} reply failed: ${String(err)}`);
         },
       },
     });
 
     // 记录 outbound 活动
     channelRuntime.activity.record({
-      channel: "socket-chat",
+      channel: "shellbot-chat",
       accountId,
       direction: "outbound",
     });

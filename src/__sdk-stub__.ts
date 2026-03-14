@@ -1,7 +1,7 @@
 /**
- * Minimal openclaw/plugin-sdk stub for socket-chat unit tests.
+ * Minimal openclaw/plugin-sdk stub for shellbot-chat unit tests.
  *
- * Only re-exports the symbols that socket-chat/src actually imports at runtime.
+ * Only re-exports the symbols that shellbot-chat/src actually imports at runtime.
  * This avoids pulling in the full SDK dependency tree (which includes modules
  * like json5 that require the openclaw monorepo workspace to resolve).
  */

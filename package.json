@@ -1,7 +1,7 @@
 {
-  "name": "@openclaw-channel/socket-chat",
+  "name": "@openclaw-channel/shellbot-chat",
   "version": "1.0.5",
-  "description": "OpenClaw Socket Chat channel plugin — MQTT-based IM bridge",
+  "description": "OpenClaw Shellbot Chat channel plugin — MQTT-based IM bridge",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -27,16 +27,16 @@
       "./index.ts"
     ],
     "channel": {
-      "id": "socket-chat",
-      "label": "Socket Chat",
-      "selectionLabel": "Socket Chat (MQTT plugin)",
-      "docsPath": "/channels/socket-chat",
-      "docsLabel": "socket-chat",
+      "id": "shellbot-chat",
+      "label": "Shellbot Chat",
+      "selectionLabel": "Shellbot Chat (MQTT plugin)",
+      "docsPath": "/channels/shellbot-chat",
+      "docsLabel": "shellbot-chat",
       "blurb": "MQTT-based IM bridge; configure an API key to connect.",
       "order": 90
     },
     "install": {
-      "npmSpec": "@openclaw/socket-chat",
+      "npmSpec": "@openclaw/shellbot-chat",
       "localPath": ".",
       "defaultChoice": "local"
     }

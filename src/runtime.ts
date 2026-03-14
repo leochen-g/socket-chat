@@ -8,7 +8,7 @@ export function setSocketChatRuntime(next: PluginRuntime): void {
 
 export function getSocketChatRuntime(): PluginRuntime {
   if (!runtime) {
-    throw new Error("socket-chat runtime not initialized");
+    throw new Error("shellbot-chat runtime not initialized");
   }
   return runtime;
 }
