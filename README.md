@@ -28,6 +28,11 @@ openclaw plugins install @openclaw-channel/shellbot-chat
 openclaw plugins install /path/to/shellbot-chat
 ```
 
+```bash
+# 升级版本
+openclaw plugins update shellbot-chat
+```
+
 ---
 
 ## 通过 CLI 添加账号

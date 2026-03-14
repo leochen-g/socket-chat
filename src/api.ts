@@ -10,7 +10,7 @@ export async function fetchMqttConfig(params: {
   timeoutMs?: number;
 }): Promise<SocketChatMqttConfig> {
   const { apiBaseUrl, apiKey, timeoutMs = 10_000 } = params;
-  const url = `${apiBaseUrl.replace(/\/$/, "")}/openapi/v1/openclaw/chat/config?apiKey=${encodeURIComponent(apiKey)}`;
+  const url = `${apiBaseUrl.replace(/\/$/, "")}/openapi/v1/openclaw/chat/config?apiSecret=${encodeURIComponent(apiKey)}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

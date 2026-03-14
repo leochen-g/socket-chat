@@ -1,6 +1,6 @@
 {
   "name": "@openclaw-channel/shellbot-chat",
-  "version": "1.0.5",
+  "version": "1.0.7",
   "description": "OpenClaw Shellbot Chat channel plugin — MQTT-based IM bridge",
   "type": "module",
   "publishConfig": {
