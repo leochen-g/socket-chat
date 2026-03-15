@@ -30,6 +30,15 @@ openclaw plugins install /path/to/socket-chat
 
 ---
 
+## 更新
+
+```bash
+# 从 npm 更新
+openclaw plugins  update socket-chat
+```
+
+---
+
 ## 通过 CLI 添加账号
 
 apiKey 从微秘书平台[个人中心](https://wechat.aibotk.com/user/info)获取
