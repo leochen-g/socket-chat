@@ -9,19 +9,19 @@ import type { SocketChatMqttConfig, SocketChatOutboundPayload } from "./types.js
  *
  * 格式约定：
  *   - 私聊：contactId，例如 "wxid_abc123"
- *   - 群聊：以 "group:" 前缀，例如 "group:roomid_xxx"
- *   - 群聊带 @：以 "group:roomid_xxx@wxid_a,wxid_b"（@ 后面逗号分隔 mentionIds）
+ *   - 群聊：以 "group:" 前缀，例如 "group:17581395450@chatroom"
+ *   - 群聊带 mention：用 "|" 分隔 groupId 与 mentionIds，例如 "group:17581395450@chatroom|wxid_a,wxid_b"
  */
 export function parseSocketChatTarget(to: string): Omit<SocketChatOutboundPayload, "messages"> {
   const trimmed = to.trim();
 
   if (trimmed.startsWith("group:")) {
     const withoutPrefix = trimmed.slice("group:".length);
-    const atIdx = withoutPrefix.indexOf("@");
-    if (atIdx !== -1) {
-      const groupId = withoutPrefix.slice(0, atIdx);
+    const pipeIdx = withoutPrefix.indexOf("|");
+    if (pipeIdx !== -1) {
+      const groupId = withoutPrefix.slice(0, pipeIdx);
       const mentionIds = withoutPrefix
-        .slice(atIdx + 1)
+        .slice(pipeIdx + 1)
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
