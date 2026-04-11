@@ -1,11 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  buildMediaPayload,
-  buildTextPayload,
+  buildSocketChatMediaPayload,
+  buildSocketChatTextPayload,
   looksLikeSocketChatTargetId,
   normalizeSocketChatTarget,
   parseSocketChatTarget,
 } from "./outbound.js";
+
+// Mock mqtt-client to prevent deep transitive imports from pulling in the full openclaw runtime
+vi.mock("./mqtt-client.js", () => ({
+  getActiveMqttClient: vi.fn(() => null),
+  getActiveMqttConfig: vi.fn(() => null),
+  monitorSocketChatProviderWithRegistry: vi.fn(),
+  getActiveMqttSession: vi.fn(() => null),
+  clearActiveMqttSession: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // parseSocketChatTarget
@@ -104,12 +113,12 @@ describe("looksLikeSocketChatTargetId", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildTextPayload
+// buildSocketChatTextPayload
 // ---------------------------------------------------------------------------
 
-describe("buildTextPayload", () => {
+describe("buildSocketChatTextPayload", () => {
   it("builds a DM text payload", () => {
-    const payload = buildTextPayload("wxid_abc", "hello");
+    const payload = buildSocketChatTextPayload("wxid_abc", "hello");
     expect(payload.isGroup).toBe(false);
     expect(payload.contactId).toBe("wxid_abc");
     expect(payload.messages).toEqual([{ type: 1, content: "hello" }]);
@@ -117,35 +126,35 @@ describe("buildTextPayload", () => {
   });
 
   it("builds a group text payload", () => {
-    const payload = buildTextPayload("group:17581395450@chatroom", "hi group");
+    const payload = buildSocketChatTextPayload("group:17581395450@chatroom", "hi group");
     expect(payload.isGroup).toBe(true);
     expect(payload.groupId).toBe("17581395450@chatroom");
     expect(payload.messages).toEqual([{ type: 1, content: "hi group" }]);
   });
 
   it("extracts mentions from group target string", () => {
-    const payload = buildTextPayload("group:17581395450@chatroom|wxid_a,wxid_b", "hi");
+    const payload = buildSocketChatTextPayload("group:17581395450@chatroom|wxid_a,wxid_b", "hi");
     expect(payload.mentionIds).toEqual(["wxid_a", "wxid_b"]);
   });
 
   it("allows explicit override of mentionIds", () => {
-    const payload = buildTextPayload("group:17581395450@chatroom", "hi", { mentionIds: ["wxid_override"] });
+    const payload = buildSocketChatTextPayload("group:17581395450@chatroom", "hi", { mentionIds: ["wxid_override"] });
     expect(payload.mentionIds).toEqual(["wxid_override"]);
   });
 
   it("sets mentionIds to undefined when empty", () => {
-    const payload = buildTextPayload("group:17581395450@chatroom", "hi", { mentionIds: [] });
+    const payload = buildSocketChatTextPayload("group:17581395450@chatroom", "hi", { mentionIds: [] });
     expect(payload.mentionIds).toBeUndefined();
   });
 });
 
 // ---------------------------------------------------------------------------
-// buildMediaPayload
+// buildSocketChatMediaPayload
 // ---------------------------------------------------------------------------
 
-describe("buildMediaPayload", () => {
+describe("buildSocketChatMediaPayload", () => {
   it("builds a media-only payload without caption", () => {
-    const payload = buildMediaPayload("wxid_abc", "https://img.example.com/photo.jpg");
+    const payload = buildSocketChatMediaPayload("wxid_abc", "https://img.example.com/photo.jpg");
     expect(payload.isGroup).toBe(false);
     expect(payload.messages).toEqual([
       { type: 2, url: "https://img.example.com/photo.jpg" },
@@ -153,7 +162,7 @@ describe("buildMediaPayload", () => {
   });
 
   it("includes caption text before image when provided", () => {
-    const payload = buildMediaPayload("wxid_abc", "https://img.example.com/photo.jpg", "Look at this");
+    const payload = buildSocketChatMediaPayload("wxid_abc", "https://img.example.com/photo.jpg", "Look at this");
     expect(payload.messages).toEqual([
       { type: 1, content: "Look at this" },
       { type: 2, url: "https://img.example.com/photo.jpg" },
@@ -161,14 +170,14 @@ describe("buildMediaPayload", () => {
   });
 
   it("skips empty caption", () => {
-    const payload = buildMediaPayload("wxid_abc", "https://img.example.com/photo.jpg", "   ");
+    const payload = buildSocketChatMediaPayload("wxid_abc", "https://img.example.com/photo.jpg", "   ");
     expect(payload.messages).toEqual([
       { type: 2, url: "https://img.example.com/photo.jpg" },
     ]);
   });
 
   it("builds group media payload", () => {
-    const payload = buildMediaPayload("group:17581395450@chatroom", "https://img.example.com/photo.jpg");
+    const payload = buildSocketChatMediaPayload("group:17581395450@chatroom", "https://img.example.com/photo.jpg");
     expect(payload.isGroup).toBe(true);
     expect(payload.groupId).toBe("17581395450@chatroom");
   });

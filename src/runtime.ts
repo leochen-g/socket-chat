@@ -1,14 +1,10 @@
-import type { PluginRuntime } from "openclaw/plugin-sdk";
+import { createPluginRuntimeStore } from "openclaw/plugin-sdk/runtime-store";
+import type { PluginRuntime } from "./runtime-api.js";
 
-let runtime: PluginRuntime | null = null;
+const {
+  setRuntime: setSocketChatRuntime,
+  getRuntime: getSocketChatRuntime,
+  clearRuntime: clearSocketChatRuntime,
+} = createPluginRuntimeStore<PluginRuntime>("socket-chat runtime not initialized");
 
-export function setSocketChatRuntime(next: PluginRuntime): void {
-  runtime = next;
-}
-
-export function getSocketChatRuntime(): PluginRuntime {
-  if (!runtime) {
-    throw new Error("socket-chat runtime not initialized");
-  }
-  return runtime;
-}
+export { setSocketChatRuntime, getSocketChatRuntime, clearSocketChatRuntime };

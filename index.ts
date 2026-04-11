@@ -1,17 +1,16 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-import { socketChatPlugin } from "./src/channel.js";
-import { setSocketChatRuntime } from "./src/runtime.js";
+import { defineBundledChannelEntry } from "openclaw/plugin-sdk/channel-entry-contract";
 
-const plugin = {
+export default defineBundledChannelEntry({
   id: "socket-chat",
   name: "Socket Chat",
   description: "Socket Chat channel plugin — MQTT-based IM bridge",
-  configSchema: emptyPluginConfigSchema(),
-  register(api: OpenClawPluginApi) {
-    setSocketChatRuntime(api.runtime);
-    api.registerChannel({ plugin: socketChatPlugin });
+  importMetaUrl: import.meta.url,
+  plugin: {
+    specifier: "./channel-api.js",
+    exportName: "socketChatPlugin",
   },
-};
-
-export default plugin;
+  runtime: {
+    specifier: "./runtime-api.js",
+    exportName: "setSocketChatRuntime",
+  },
+});

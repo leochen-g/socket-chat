@@ -1,10 +1,61 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { handleInboundMessage, _resetNotifiedGroupsForTest } from "./inbound.js";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { dispatchInboundReplyWithBase, createChannelPairingController } from "./runtime-api.js";
+import { setSocketChatRuntime, clearSocketChatRuntime } from "./runtime.js";
+import { handleSocketChatInbound, _resetNotifiedGroupsForTest } from "./inbound.js";
 import type { SocketChatInboundMessage } from "./types.js";
 import type { CoreConfig } from "./config.js";
 
 // ---------------------------------------------------------------------------
-// helpers
+// Module mocks
+// ---------------------------------------------------------------------------
+
+vi.mock("./runtime-api.js", () => {
+  return {
+    dispatchInboundReplyWithBase: vi.fn(async () => {}),
+    createChannelPairingController: vi.fn(),
+    deliverFormattedTextWithAttachments: vi.fn(async () => true),
+    resolveAllowlistMatchByCandidates: vi.fn(
+      ({ allowList, candidates }: { allowList: string[]; candidates: { value: string }[] }) => {
+        const allowed = allowList.some(
+          (rule) => rule === "*" || candidates.some((c) => c.value === rule),
+        );
+        return { allowed, matchedRule: undefined };
+      },
+    ),
+    resolveChannelMediaMaxBytes: vi.fn(
+      ({
+        cfg,
+        resolveChannelLimitMb,
+        accountId,
+      }: {
+        cfg: unknown;
+        resolveChannelLimitMb: (args: { cfg: unknown; accountId: string }) => number | undefined;
+        accountId: string;
+      }) => {
+        const mb = resolveChannelLimitMb({ cfg, accountId });
+        return mb !== undefined ? mb * 1024 * 1024 : undefined;
+      },
+    ),
+    detectMime: vi.fn(async ({ headerMime }: { headerMime?: string }) => headerMime),
+    buildMediaPayload: vi.fn(
+      (items: Array<{ path: string; contentType?: string }>) => {
+        const item = items[0];
+        if (!item) return {};
+        return {
+          MediaPath: item.path,
+          MediaUrl: item.path,
+          MediaPaths: [item.path],
+          MediaUrls: [item.path],
+          MediaType: item.contentType,
+          MediaTypes: [item.contentType],
+        };
+      },
+    ),
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
 // ---------------------------------------------------------------------------
 
 function makeMsg(overrides: Partial<SocketChatInboundMessage> = {}): SocketChatInboundMessage {
@@ -20,69 +71,62 @@ function makeMsg(overrides: Partial<SocketChatInboundMessage> = {}): SocketChatI
   };
 }
 
-type MockChannelRuntime = {
-  pairing: {
-    readAllowFromStore: ReturnType<typeof vi.fn>;
-    upsertPairingRequest: ReturnType<typeof vi.fn>;
-    buildPairingReply: ReturnType<typeof vi.fn>;
+function makeConfig(channelCfg: Record<string, unknown> = {}): CoreConfig {
+  return {
+    channels: {
+      "socket-chat": {
+        apiKey: "k",
+        apiBaseUrl: "https://x.com",
+        ...channelCfg,
+      },
+    },
+  } as unknown as CoreConfig;
+}
+
+function makeLog() {
+  return {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
   };
-  reply: {
-    finalizeInboundContext: ReturnType<typeof vi.fn>;
-    dispatchReplyWithBufferedBlockDispatcher: ReturnType<typeof vi.fn>;
-  };
-  routing: {
-    resolveAgentRoute: ReturnType<typeof vi.fn>;
-  };
-  session: {
-    resolveStorePath: ReturnType<typeof vi.fn>;
-    recordInboundSession: ReturnType<typeof vi.fn>;
-  };
-  activity: {
-    record: ReturnType<typeof vi.fn>;
-  };
+}
+
+type MockCore = {
   channel: {
+    routing: { resolveAgentRoute: ReturnType<typeof vi.fn> };
+    session: { resolveStorePath: ReturnType<typeof vi.fn> };
+    reply: { finalizeInboundContext: ReturnType<typeof vi.fn> };
     media: {
       fetchRemoteMedia: ReturnType<typeof vi.fn>;
       saveMediaBuffer: ReturnType<typeof vi.fn>;
     };
-  };
-  media: {
-    fetchRemoteMedia: ReturnType<typeof vi.fn>;
-    saveMediaBuffer: ReturnType<typeof vi.fn>;
+    pairing: {
+      readAllowFromStore: ReturnType<typeof vi.fn>;
+      upsertPairingRequest: ReturnType<typeof vi.fn>;
+    };
   };
 };
 
-function makeMockRuntime(overrides: Partial<MockChannelRuntime> = {}): MockChannelRuntime {
+function makeMockCore(overrides: Partial<MockCore["channel"]> = {}): MockCore {
   return {
-    pairing: {
-      readAllowFromStore: vi.fn(async () => []),
-      upsertPairingRequest: vi.fn(async () => ({ code: "CODE123", created: true })),
-      buildPairingReply: vi.fn(() => "Please pair with code: CODE123"),
-      ...overrides.pairing,
-    },
-    reply: {
-      finalizeInboundContext: vi.fn((ctx) => ctx),
-      dispatchReplyWithBufferedBlockDispatcher: vi.fn(async () => {}),
-      ...overrides.reply,
-    },
-    routing: {
-      resolveAgentRoute: vi.fn(() => ({
-        agentId: "agent-1",
-        sessionKey: "session-1",
-        accountId: "default",
-      })),
-      ...overrides.routing,
-    },
-    session: {
-      resolveStorePath: vi.fn(() => "/tmp/store"),
-      recordInboundSession: vi.fn(async () => {}),
-      ...overrides.session,
-    },
-    activity: {
-      record: vi.fn(),
-      ...overrides.activity,
-    },
     channel: {
+      routing: {
+        resolveAgentRoute: vi.fn(() => ({
+          agentId: "agent-1",
+          sessionKey: "session-1",
+          accountId: "default",
+        })),
+        ...overrides.routing,
+      },
+      session: {
+        resolveStorePath: vi.fn(() => "/tmp/store"),
+        ...overrides.session,
+      },
+      reply: {
+        finalizeInboundContext: vi.fn((ctx) => ctx),
+        ...overrides.reply,
+      },
       media: {
         fetchRemoteMedia: vi.fn(async () => ({
           buffer: Buffer.from("fake-image-data"),
@@ -92,67 +136,65 @@ function makeMockRuntime(overrides: Partial<MockChannelRuntime> = {}): MockChann
           path: "/tmp/openclaw/inbound/saved-img.jpg",
           contentType: "image/jpeg",
         })),
-        ...overrides.channel?.media,
+        ...overrides.media,
       },
-    },
-    media: {
-      fetchRemoteMedia: vi.fn(async () => ({
-        buffer: Buffer.from("fake-image-data"),
-        contentType: "image/jpeg",
-      })),
-      saveMediaBuffer: vi.fn(async () => ({
-        path: "/tmp/openclaw/inbound/saved-img.jpg",
-        contentType: "image/jpeg",
-      })),
-      ...overrides.media,
+      pairing: {
+        readAllowFromStore: vi.fn(async () => []),
+        upsertPairingRequest: vi.fn(async () => ({ code: "CODE123", created: true })),
+        ...overrides.pairing,
+      },
     },
   };
 }
 
-function makeCtx(
-  runtime: MockChannelRuntime,
-  cfgOverride: CoreConfig = {
-    channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com" } },
-  },
-) {
+function makeDefaultPairingController(overrides: {
+  readAllowFromStore?: () => Promise<string[]>;
+  issueChallenge?: (params: { sendPairingReply: (text: string) => Promise<void> }) => Promise<void>;
+} = {}) {
   return {
-    channelRuntime: runtime,
-    cfg: cfgOverride,
-    abortSignal: new AbortController().signal,
-    log: {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
-    },
-    setStatus: vi.fn(),
-    account: { accountId: "default", apiKey: "k", apiBaseUrl: "https://x.com", name: undefined, enabled: true, config: {} },
+    readAllowFromStore: vi.fn(overrides.readAllowFromStore ?? (async () => [])),
+    issueChallenge: vi.fn(overrides.issueChallenge ?? (async () => {})),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
+let mockCore: MockCore;
+
+beforeEach(() => {
+  mockCore = makeMockCore();
+  setSocketChatRuntime(mockCore as never);
+  vi.mocked(dispatchInboundReplyWithBase).mockClear();
+  vi.mocked(dispatchInboundReplyWithBase).mockResolvedValue(undefined as never);
+  // Default pairing controller: nobody in store, issueChallenge is no-op
+  vi.mocked(createChannelPairingController).mockReturnValue(
+    makeDefaultPairingController() as never,
+  );
+});
+
+afterEach(() => {
+  clearSocketChatRuntime();
+  vi.clearAllMocks();
+});
 
 // ---------------------------------------------------------------------------
 // DM policy: open
 // ---------------------------------------------------------------------------
 
-describe("handleInboundMessage — dmPolicy=open", () => {
+describe("handleSocketChatInbound — dmPolicy=open", () => {
   it("dispatches AI reply when dmPolicy is open", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" },
-      },
-    });
     const sendReply = vi.fn(async () => {});
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg(),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply,
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
     expect(sendReply).not.toHaveBeenCalled();
   });
 });
@@ -161,131 +203,93 @@ describe("handleInboundMessage — dmPolicy=open", () => {
 // DM policy: pairing
 // ---------------------------------------------------------------------------
 
-describe("handleInboundMessage — dmPolicy=pairing", () => {
+describe("handleSocketChatInbound — dmPolicy=pairing", () => {
   it("blocks unknown sender and sends pairing message on first request", async () => {
-    const runtime = makeMockRuntime();
-    // Pairing store is empty — sender is unknown
-    runtime.pairing.readAllowFromStore.mockResolvedValue([]);
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
+    const mockController = makeDefaultPairingController({
+      readAllowFromStore: async () => [],
+      issueChallenge: async ({ sendPairingReply }) => {
+        await sendPairingReply("Please pair with code: CODE123");
       },
     });
-    const sendReply = vi.fn(async () => {});
+    vi.mocked(createChannelPairingController).mockReturnValue(mockController as never);
 
-    await handleInboundMessage({
+    const sendReply = vi.fn(async () => {});
+    await handleSocketChatInbound({
       msg: makeMsg({ senderId: "wxid_unknown" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "pairing" }),
+      log: makeLog(),
       sendReply,
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
-    expect(runtime.pairing.upsertPairingRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "wxid_unknown", channel: "socket-chat" }),
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
+    expect(mockController.issueChallenge).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: "wxid_unknown" }),
     );
     expect(sendReply).toHaveBeenCalledOnce();
   });
 
   it("allows sender present in pairing store", async () => {
-    const runtime = makeMockRuntime();
-    runtime.pairing.readAllowFromStore.mockResolvedValue(["wxid_approved"]);
+    vi.mocked(createChannelPairingController).mockReturnValue(
+      makeDefaultPairingController({ readAllowFromStore: async () => ["wxid_approved"] }) as never,
+    );
 
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
-      },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ senderId: "wxid_approved" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "pairing" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("allows sender present in config allowFrom", async () => {
-    const runtime = makeMockRuntime();
-    runtime.pairing.readAllowFromStore.mockResolvedValue([]);
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          dmPolicy: "pairing",
-          allowFrom: ["wxid_allowed"],
-        },
-      },
-    });
-
-    await handleInboundMessage({
+    // Store is empty; allowed via config
+    await handleSocketChatInbound({
       msg: makeMsg({ senderId: "wxid_allowed" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "pairing", allowFrom: ["wxid_allowed"] }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
-  it("does not send second pairing message when request already exists", async () => {
-    const runtime = makeMockRuntime();
-    runtime.pairing.readAllowFromStore.mockResolvedValue([]);
-    // Simulates already-created pairing request (created=false)
-    runtime.pairing.upsertPairingRequest.mockResolvedValue({ code: "CODE123", created: false });
+  it("does not send pairing message when issueChallenge resolves without calling sendPairingReply", async () => {
+    // Simulates already-pending request where issueChallenge doesn't send another message
+    vi.mocked(createChannelPairingController).mockReturnValue(
+      makeDefaultPairingController({
+        readAllowFromStore: async () => [],
+        issueChallenge: async () => {}, // no-op — doesn't call sendPairingReply
+      }) as never,
+    );
 
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "pairing" },
-      },
-    });
     const sendReply = vi.fn(async () => {});
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ senderId: "wxid_pending" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "pairing" }),
+      log: makeLog(),
       sendReply,
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
-    // No reply because created=false
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
     expect(sendReply).not.toHaveBeenCalled();
   });
 
   it("allows wildcard '*' in allowFrom", async () => {
-    const runtime = makeMockRuntime();
-    runtime.pairing.readAllowFromStore.mockResolvedValue([]);
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          dmPolicy: "pairing",
-          allowFrom: ["*"],
-        },
-      },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ senderId: "wxid_anyone" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "pairing", allowFrom: ["*"] }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 });
 
@@ -293,60 +297,37 @@ describe("handleInboundMessage — dmPolicy=pairing", () => {
 // DM policy: allowlist
 // ---------------------------------------------------------------------------
 
-describe("handleInboundMessage — dmPolicy=allowlist", () => {
+describe("handleSocketChatInbound — dmPolicy=allowlist", () => {
   it("blocks sender not in allowFrom (no pairing request sent)", async () => {
-    const runtime = makeMockRuntime();
-    runtime.pairing.readAllowFromStore.mockResolvedValue([]);
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          dmPolicy: "allowlist",
-          allowFrom: ["wxid_allowed"],
-        },
-      },
+    const mockController = makeDefaultPairingController({
+      readAllowFromStore: async () => [],
     });
-    const sendReply = vi.fn(async () => {});
+    vi.mocked(createChannelPairingController).mockReturnValue(mockController as never);
 
-    await handleInboundMessage({
+    const sendReply = vi.fn(async () => {});
+    await handleSocketChatInbound({
       msg: makeMsg({ senderId: "wxid_stranger" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "allowlist", allowFrom: ["wxid_allowed"] }),
+      log: makeLog(),
       sendReply,
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
-    expect(runtime.pairing.upsertPairingRequest).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
+    expect(mockController.issueChallenge).not.toHaveBeenCalled();
     expect(sendReply).not.toHaveBeenCalled();
   });
 
   it("allows sender in allowFrom", async () => {
-    const runtime = makeMockRuntime();
-    runtime.pairing.readAllowFromStore.mockResolvedValue([]);
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          dmPolicy: "allowlist",
-          allowFrom: ["wxid_allowed"],
-        },
-      },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ senderId: "wxid_allowed" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "allowlist", allowFrom: ["wxid_allowed"] }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 });
 
@@ -354,21 +335,9 @@ describe("handleInboundMessage — dmPolicy=allowlist", () => {
 // Group messages
 // ---------------------------------------------------------------------------
 
-describe("handleInboundMessage — group messages", () => {
+describe("handleSocketChatInbound — group messages", () => {
   it("dispatches AI reply for group message with isGroupMention=true (no @text needed)", async () => {
-    const runtime = makeMockRuntime();
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          requireMention: true,
-        },
-      },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         isGroup: true,
         groupId: "roomid_group1",
@@ -377,28 +346,16 @@ describe("handleInboundMessage — group messages", () => {
         content: "hello group (no @text in content)",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ requireMention: true }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("skips group message when isGroupMention=false and no @text", async () => {
-    const runtime = makeMockRuntime();
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          requireMention: true,
-        },
-      },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         isGroup: true,
         groupId: "roomid_group1",
@@ -407,28 +364,16 @@ describe("handleInboundMessage — group messages", () => {
         content: "just chatting",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ requireMention: true }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
   });
 
   it("dispatches AI reply for group message mentioning robotId", async () => {
-    const runtime = makeMockRuntime();
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          requireMention: true,
-        },
-      },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         isGroup: true,
         groupId: "roomid_group1",
@@ -436,28 +381,16 @@ describe("handleInboundMessage — group messages", () => {
         content: "@robot_abc hello group",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ requireMention: true }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("skips group message not mentioning bot when requireMention=true", async () => {
-    const runtime = makeMockRuntime();
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          requireMention: true,
-        },
-      },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         isGroup: true,
         groupId: "roomid_group1",
@@ -465,28 +398,16 @@ describe("handleInboundMessage — group messages", () => {
         content: "just chatting without mention",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ requireMention: true }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
   });
 
   it("dispatches group message without mention when requireMention=false", async () => {
-    const runtime = makeMockRuntime();
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          requireMention: false,
-        },
-      },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         isGroup: true,
         groupId: "roomid_group1",
@@ -494,31 +415,21 @@ describe("handleInboundMessage — group messages", () => {
         content: "no mention needed",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ requireMention: false }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("skips DM policy check for group messages", async () => {
-    const runtime = makeMockRuntime();
-    // pairing store empty, but message is group — should not block
-    runtime.pairing.readAllowFromStore.mockResolvedValue([]);
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": {
-          apiKey: "k",
-          apiBaseUrl: "https://x.com",
-          dmPolicy: "pairing",
-          requireMention: false,
-        },
-      },
+    const mockController = makeDefaultPairingController({
+      readAllowFromStore: async () => [], // empty store
     });
+    vi.mocked(createChannelPairingController).mockReturnValue(mockController as never);
 
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         isGroup: true,
         groupId: "roomid_group1",
@@ -526,14 +437,14 @@ describe("handleInboundMessage — group messages", () => {
         content: "group message",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "pairing", requireMention: false }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    // DM pairing check should be skipped; dispatch should happen
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
-    expect(runtime.pairing.upsertPairingRequest).not.toHaveBeenCalled();
+    // DM pairing check is skipped; dispatch should happen
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
+    expect(mockController.issueChallenge).not.toHaveBeenCalled();
   });
 });
 
@@ -541,38 +452,30 @@ describe("handleInboundMessage — group messages", () => {
 // Media messages
 // ---------------------------------------------------------------------------
 
-describe("handleInboundMessage — media messages", () => {
+describe("handleSocketChatInbound — media messages", () => {
   it("downloads image URL and passes local path as MediaPath/MediaUrl", async () => {
-    const runtime = makeMockRuntime();
-    runtime.media.saveMediaBuffer.mockResolvedValue({
+    mockCore.channel.media.saveMediaBuffer.mockResolvedValue({
       path: "/tmp/openclaw/inbound/img-001.jpg",
       contentType: "image/jpeg",
     });
 
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "图片",
         url: "https://oss.example.com/img.jpg",
         content: "【图片消息】\n文件名：img.jpg",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    // fetchRemoteMedia should have been called with the original URL
-    expect(runtime.media.fetchRemoteMedia).toHaveBeenCalledWith(
+    expect(mockCore.channel.media.fetchRemoteMedia).toHaveBeenCalledWith(
       expect.objectContaining({ url: "https://oss.example.com/img.jpg" }),
     );
-    // saveMediaBuffer should have been called
-    expect(runtime.media.saveMediaBuffer).toHaveBeenCalledOnce();
-    // ctxPayload should carry the saved local path, not the original URL
-    expect(runtime.reply.finalizeInboundContext).toHaveBeenCalledWith(
+    expect(mockCore.channel.media.saveMediaBuffer).toHaveBeenCalledOnce();
+    expect(mockCore.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         MediaPath: "/tmp/openclaw/inbound/img-001.jpg",
         MediaUrl: "/tmp/openclaw/inbound/img-001.jpg",
@@ -581,37 +484,32 @@ describe("handleInboundMessage — media messages", () => {
         MediaType: "image/jpeg",
       }),
     );
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("downloads video URL and detects correct content type", async () => {
-    const runtime = makeMockRuntime();
-    runtime.media.fetchRemoteMedia.mockResolvedValue({
+    mockCore.channel.media.fetchRemoteMedia.mockResolvedValue({
       buffer: Buffer.from("fake-video-data"),
       contentType: "video/mp4",
     });
-    runtime.media.saveMediaBuffer.mockResolvedValue({
+    mockCore.channel.media.saveMediaBuffer.mockResolvedValue({
       path: "/tmp/openclaw/inbound/video-001.mp4",
       contentType: "video/mp4",
     });
 
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "视频",
         url: "https://oss.example.com/video.mp4",
         content: "【视频消息】",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.finalizeInboundContext).toHaveBeenCalledWith(
+    expect(mockCore.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         MediaPath: "/tmp/openclaw/inbound/video-001.mp4",
         MediaType: "video/mp4",
@@ -620,261 +518,217 @@ describe("handleInboundMessage — media messages", () => {
   });
 
   it("decodes base64 data URL and saves to local file", async () => {
-    const runtime = makeMockRuntime();
-    runtime.media.saveMediaBuffer.mockResolvedValue({
+    mockCore.channel.media.saveMediaBuffer.mockResolvedValue({
       path: "/tmp/openclaw/inbound/b64-img.jpg",
       contentType: "image/jpeg",
     });
 
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-
-    // minimal valid JPEG-ish base64
     const fakeBase64 = Buffer.from("fake-jpeg-bytes").toString("base64");
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "图片",
         url: `data:image/jpeg;base64,${fakeBase64}`,
         content: "【图片消息】",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
     // Should NOT call fetchRemoteMedia for data URLs
-    expect(runtime.media.fetchRemoteMedia).not.toHaveBeenCalled();
+    expect(mockCore.channel.media.fetchRemoteMedia).not.toHaveBeenCalled();
     // Should call saveMediaBuffer with decoded buffer
-    expect(runtime.media.saveMediaBuffer).toHaveBeenCalledOnce();
-    const [savedBuf, savedMime] = runtime.media.saveMediaBuffer.mock.calls[0] as [Buffer, string];
+    expect(mockCore.channel.media.saveMediaBuffer).toHaveBeenCalledOnce();
+    const [savedBuf, savedMime] = mockCore.channel.media.saveMediaBuffer.mock.calls[0] as [
+      Buffer,
+      string,
+    ];
     expect(Buffer.isBuffer(savedBuf)).toBe(true);
     expect(savedBuf.toString()).toBe("fake-jpeg-bytes");
     expect(savedMime).toBe("image/jpeg");
     // ctxPayload should carry the local path
-    expect(runtime.reply.finalizeInboundContext).toHaveBeenCalledWith(
+    expect(mockCore.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         MediaPath: "/tmp/openclaw/inbound/b64-img.jpg",
         MediaUrl: "/tmp/openclaw/inbound/b64-img.jpg",
       }),
     );
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("skips base64 media that exceeds maxBytes and continues dispatch", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      // 1 MB limit
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open", mediaMaxMb: 1 } },
-    });
-    const log = { ...ctx.log, warn: vi.fn() };
+    const log = makeLog();
 
     // ~2 MB of base64 data (each char ≈ 0.75 bytes → need > 1.4M chars)
     const bigBase64 = "A".repeat(1_500_000);
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "图片",
         url: `data:image/jpeg;base64,${bigBase64}`,
         content: "【图片消息】",
       }),
       accountId: "default",
-      ctx: ctx as never,
+      config: makeConfig({ dmPolicy: "open", mediaMaxMb: 1 }),
       log,
       sendReply: vi.fn(async () => {}),
     });
 
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("media localization failed"));
-    expect(runtime.media.saveMediaBuffer).not.toHaveBeenCalled();
+    expect(mockCore.channel.media.saveMediaBuffer).not.toHaveBeenCalled();
     // Dispatch still proceeds without media fields
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
-    const callArg = runtime.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
+    const callArg = mockCore.channel.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
     expect(callArg).not.toHaveProperty("MediaPath");
   });
 
   it("does not call fetchRemoteMedia for base64 data URLs (uses saveMediaBuffer directly)", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-
     const fakeBase64 = Buffer.from("img-bytes").toString("base64");
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "图片",
         url: `data:image/jpeg;base64,${fakeBase64}`,
         content: "【图片消息】",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.media.fetchRemoteMedia).not.toHaveBeenCalled();
-    expect(runtime.media.saveMediaBuffer).toHaveBeenCalledOnce();
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(mockCore.channel.media.fetchRemoteMedia).not.toHaveBeenCalled();
+    expect(mockCore.channel.media.saveMediaBuffer).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("does not call fetchRemoteMedia when url is absent", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ content: "plain text, no media" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.media.fetchRemoteMedia).not.toHaveBeenCalled();
-    expect(runtime.media.saveMediaBuffer).not.toHaveBeenCalled();
-    const callArg = runtime.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(mockCore.channel.media.fetchRemoteMedia).not.toHaveBeenCalled();
+    expect(mockCore.channel.media.saveMediaBuffer).not.toHaveBeenCalled();
+    const callArg = mockCore.channel.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
     expect(callArg).not.toHaveProperty("MediaPath");
   });
 
   it("continues dispatch and logs warning when media download fails", async () => {
-    const runtime = makeMockRuntime();
-    runtime.media.fetchRemoteMedia.mockRejectedValue(new Error("network timeout"));
+    mockCore.channel.media.fetchRemoteMedia.mockRejectedValue(new Error("network timeout"));
 
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-    const log = { ...ctx.log, warn: vi.fn() };
-
-    await handleInboundMessage({
+    const log = makeLog();
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "图片",
         url: "https://oss.example.com/img.jpg",
         content: "【图片消息】",
       }),
       accountId: "default",
-      ctx: ctx as never,
+      config: makeConfig({ dmPolicy: "open" }),
       log,
       sendReply: vi.fn(async () => {}),
     });
 
-    // Warning logged
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("media localization failed"),
-    );
-    // Dispatch still proceeds (text body)
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
-    // No media fields in ctxPayload
-    const callArg = runtime.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("media localization failed"));
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
+    const callArg = mockCore.channel.reply.finalizeInboundContext.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
     expect(callArg).not.toHaveProperty("MediaPath");
     expect(callArg).not.toHaveProperty("MediaUrl");
   });
 
   it("continues dispatch and logs warning when saveMediaBuffer fails", async () => {
-    const runtime = makeMockRuntime();
-    runtime.media.saveMediaBuffer.mockRejectedValue(new Error("disk full"));
+    mockCore.channel.media.saveMediaBuffer.mockRejectedValue(new Error("disk full"));
 
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-    const log = { ...ctx.log, warn: vi.fn() };
-
-    await handleInboundMessage({
+    const log = makeLog();
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "图片",
         url: "https://oss.example.com/img.jpg",
         content: "【图片消息】",
       }),
       accountId: "default",
-      ctx: ctx as never,
+      config: makeConfig({ dmPolicy: "open" }),
       log,
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("media localization failed"),
-    );
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("media localization failed"));
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("does not skip image-only message (content empty, url present)", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "图片",
         url: "https://oss.example.com/img.jpg",
         content: "",
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("uses content as body when both content and url are present", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-
     const content = "【图片消息】\n文件名：img.jpg\n下载链接：https://oss.example.com/img.jpg";
 
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({
         type: "图片",
         url: "https://oss.example.com/img.jpg",
         content,
       }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.finalizeInboundContext).toHaveBeenCalledWith(
+    expect(mockCore.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({ Body: content, BodyForAgent: content }),
     );
   });
 
   it("falls back to <media:type> placeholder as body when content is empty", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" } },
-    });
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ type: "图片", url: "https://oss.example.com/img.jpg", content: "" }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.finalizeInboundContext).toHaveBeenCalledWith(
+    expect(mockCore.channel.reply.finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({ Body: "<media:图片>", BodyForAgent: "<media:图片>" }),
     );
   });
 
   it("skips message when both content and url are absent", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime);
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ content: "", url: undefined }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig(),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
-    expect(runtime.media.fetchRemoteMedia).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
+    expect(mockCore.channel.media.fetchRemoteMedia).not.toHaveBeenCalled();
   });
 });
 
@@ -882,67 +736,46 @@ describe("handleInboundMessage — media messages", () => {
 // Edge cases
 // ---------------------------------------------------------------------------
 
-describe("handleInboundMessage — edge cases", () => {
+describe("handleSocketChatInbound — edge cases", () => {
   it("skips empty message content", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime);
-
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ content: "   " }),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig(),
+      log: makeLog(),
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
   });
 
-  it("handles missing channelRuntime gracefully", async () => {
-    const log = {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
-    };
+  it("rejects when runtime is not initialized", async () => {
+    clearSocketChatRuntime(); // remove runtime injected in beforeEach
 
     await expect(
-      handleInboundMessage({
+      handleSocketChatInbound({
         msg: makeMsg(),
         accountId: "default",
-        ctx: { channelRuntime: null, cfg: {} } as never,
-        log,
+        config: makeConfig(),
+        log: makeLog(),
         sendReply: vi.fn(async () => {}),
       }),
-    ).resolves.toBeUndefined();
-
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("channelRuntime not available"),
-    );
+    ).rejects.toThrow(/socket-chat runtime not initialized/);
   });
 
-  it("records inbound and outbound activity on success", async () => {
-    const runtime = makeMockRuntime();
-
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", dmPolicy: "open" },
-      },
-    });
-
-    await handleInboundMessage({
+  it("calls statusSink with lastInboundAt on message arrival", async () => {
+    const statusSink = vi.fn();
+    await handleSocketChatInbound({
       msg: makeMsg(),
       accountId: "default",
-      ctx: ctx as never,
-      log: ctx.log,
+      config: makeConfig({ dmPolicy: "open" }),
+      log: makeLog(),
+      statusSink,
       sendReply: vi.fn(async () => {}),
     });
 
-    expect(runtime.activity.record).toHaveBeenCalledWith(
-      expect.objectContaining({ direction: "inbound", channel: "socket-chat" }),
-    );
-    expect(runtime.activity.record).toHaveBeenCalledWith(
-      expect.objectContaining({ direction: "outbound", channel: "socket-chat" }),
+    expect(statusSink).toHaveBeenCalledWith(
+      expect.objectContaining({ lastInboundAt: expect.any(Number) }),
     );
   });
 });
@@ -951,170 +784,159 @@ describe("handleInboundMessage — edge cases", () => {
 // Group access control — tier 1 (groupId) + tier 2 (sender)
 // ---------------------------------------------------------------------------
 
-describe("handleInboundMessage — group access control (tier 1: groupId)", () => {
+describe("handleSocketChatInbound — group access control (tier 1: groupId)", () => {
   beforeEach(() => {
     _resetNotifiedGroupsForTest();
   });
 
   it("allows all groups when groupPolicy=open (default)", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", requireMention: false } },
-    });
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:any_group", robotId: "robot_abc", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+      accountId: "default",
+      config: makeConfig({ requireMention: false }),
+      log: makeLog(),
+      sendReply: vi.fn(async () => {}),
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("blocks all groups when groupPolicy=disabled (no notification)", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "disabled" } },
-    });
     const sendReply = vi.fn(async () => {});
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:any_group", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
+      accountId: "default",
+      config: makeConfig({ groupPolicy: "disabled" }),
+      log: makeLog(),
+      sendReply,
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
     expect(sendReply).not.toHaveBeenCalled();
   });
 
   it("allows group in allowlist when groupPolicy=allowlist", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: {
-        "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"], requireMention: false },
-      },
-    });
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:allowed_group", robotId: "robot_abc", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+      accountId: "default",
+      config: makeConfig({ groupPolicy: "allowlist", groups: ["R:allowed_group"], requireMention: false }),
+      log: makeLog(),
+      sendReply: vi.fn(async () => {}),
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
-  it("blocks unlisted group without sending notification (notify branch commented out)", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
-    });
+  it("blocks unlisted group without sending notification", async () => {
     const sendReply = vi.fn(async () => {});
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:other_group", groupName: "测试群", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
+      accountId: "default",
+      config: makeConfig({ groupPolicy: "allowlist", groups: ["R:allowed_group"] }),
+      log: makeLog(),
+      sendReply,
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
-    // Notification is currently disabled (commented out in inbound.ts)
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
     expect(sendReply).not.toHaveBeenCalled();
   });
 
   it("silently blocks repeated messages from same unlisted group", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["R:allowed_group"] } },
-    });
     const sendReply = vi.fn(async () => {});
     const msg = makeMsg({ isGroup: true, groupId: "R:notify_once_group", isGroupMention: true });
-    await handleInboundMessage({ msg, accountId: "default", ctx: ctx as never, log: ctx.log, sendReply });
-    await handleInboundMessage({ msg, accountId: "default", ctx: ctx as never, log: ctx.log, sendReply });
+    const args = {
+      msg,
+      accountId: "default",
+      config: makeConfig({ groupPolicy: "allowlist", groups: ["R:allowed_group"] }),
+      log: makeLog(),
+      sendReply,
+    };
+    await handleSocketChatInbound(args);
+    await handleSocketChatInbound(args);
     expect(sendReply).not.toHaveBeenCalled();
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
   });
 
   it("blocks when groupPolicy=allowlist and groups is empty (no notification)", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: [] } },
-    });
     const sendReply = vi.fn(async () => {});
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:any_group", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
+      accountId: "default",
+      config: makeConfig({ groupPolicy: "allowlist", groups: [] }),
+      log: makeLog(),
+      sendReply,
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
     expect(sendReply).not.toHaveBeenCalled();
   });
 
   it("allows wildcard '*' in groups list", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupPolicy: "allowlist", groups: ["*"], requireMention: false } },
-    });
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:any_group", robotId: "robot_abc", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+      accountId: "default",
+      config: makeConfig({ groupPolicy: "allowlist", groups: ["*"], requireMention: false }),
+      log: makeLog(),
+      sendReply: vi.fn(async () => {}),
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 });
 
-describe("handleInboundMessage — group access control (tier 2: sender)", () => {
+describe("handleSocketChatInbound — group access control (tier 2: sender)", () => {
   beforeEach(() => {
     _resetNotifiedGroupsForTest();
   });
 
   it("allows all senders when groupAllowFrom is empty", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", requireMention: false } },
-    });
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_anyone", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+      accountId: "default",
+      config: makeConfig({ requireMention: false }),
+      log: makeLog(),
+      sendReply: vi.fn(async () => {}),
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("allows sender matching groupAllowFrom by ID", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["wxid_allowed"], requireMention: false } },
-    });
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_allowed", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+      accountId: "default",
+      config: makeConfig({ groupAllowFrom: ["wxid_allowed"], requireMention: false }),
+      log: makeLog(),
+      sendReply: vi.fn(async () => {}),
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("allows sender matching groupAllowFrom by name (case-insensitive)", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["alice"], requireMention: false } },
-    });
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_unknown", senderName: "Alice", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+      accountId: "default",
+      config: makeConfig({ groupAllowFrom: ["alice"], requireMention: false }),
+      log: makeLog(),
+      sendReply: vi.fn(async () => {}),
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 
   it("blocks sender not in groupAllowFrom (silent drop)", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["wxid_allowed"], requireMention: false } },
-    });
     const sendReply = vi.fn(async () => {});
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_stranger", senderName: "Stranger", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply,
+      accountId: "default",
+      config: makeConfig({ groupAllowFrom: ["wxid_allowed"], requireMention: false }),
+      log: makeLog(),
+      sendReply,
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(dispatchInboundReplyWithBase).not.toHaveBeenCalled();
     expect(sendReply).not.toHaveBeenCalled();
   });
 
   it("allows wildcard '*' in groupAllowFrom", async () => {
-    const runtime = makeMockRuntime();
-    const ctx = makeCtx(runtime, {
-      channels: { "socket-chat": { apiKey: "k", apiBaseUrl: "https://x.com", groupAllowFrom: ["*"], requireMention: false } },
-    });
-    await handleInboundMessage({
+    await handleSocketChatInbound({
       msg: makeMsg({ isGroup: true, groupId: "R:g1", senderId: "wxid_anyone", isGroupMention: true }),
-      accountId: "default", ctx: ctx as never, log: ctx.log, sendReply: vi.fn(async () => {}),
+      accountId: "default",
+      config: makeConfig({ groupAllowFrom: ["*"], requireMention: false }),
+      log: makeLog(),
+      sendReply: vi.fn(async () => {}),
     });
-    expect(runtime.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchInboundReplyWithBase).toHaveBeenCalledOnce();
   });
 });

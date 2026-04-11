@@ -1,5 +1,4 @@
 import type { MqttClient } from "mqtt";
-import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID } from "./config.js";
 import { getActiveMqttClient, getActiveMqttConfig } from "./mqtt-client.js";
 import type { SocketChatMqttConfig, SocketChatOutboundPayload } from "./types.js";
@@ -53,27 +52,22 @@ export function looksLikeSocketChatTargetId(s: string): boolean {
 }
 
 /**
- * 构建纯文本发送 payload
+ * 构建文字消息 payload（纯函数，不发送）
  */
-export function buildTextPayload(
+export function buildSocketChatTextPayload(
   to: string,
   text: string,
-  opts: { mentionIds?: string[] } = {},
+  opts?: { mentionIds?: string[] },
 ): SocketChatOutboundPayload {
   const base = parseSocketChatTarget(to);
-  const mentionIds =
-    opts.mentionIds ?? (base.isGroup ? base.mentionIds : undefined);
-  return {
-    ...base,
-    mentionIds: mentionIds?.length ? mentionIds : undefined,
-    messages: [{ type: 1, content: text }],
-  };
+  const mentionIds = opts?.mentionIds?.length ? opts.mentionIds : undefined;
+  return { ...base, messages: [{ type: 1, content: text }], ...(mentionIds ? { mentionIds } : {}) };
 }
 
 /**
  * 构建图片发送 payload（可附带文字 caption）
  */
-export function buildMediaPayload(
+export function buildSocketChatMediaPayload(
   to: string,
   imageUrl: string,
   caption?: string,
@@ -110,66 +104,34 @@ export async function sendSocketChatMessage(params: {
 }
 
 // ---------------------------------------------------------------------------
-// ChannelOutboundAdapter 实现
+// Shared outbound helper used by channel.ts and inbound.ts
 // ---------------------------------------------------------------------------
 
 /**
- * socket-chat 出站适配器。
- *
- * 通过注册表查找当前账号的活跃 MQTT client 发送消息：
- *   - sendText：发送纯文字
- *   - sendMedia：优先发图片（type:2），无 mediaUrl 时退化为纯文字
- *   - resolveTarget：规范化目标地址（strip socket-chat: 前缀）
+ * 通过活跃的 MQTT client 发送文字消息到指定目标
  */
-export const socketChatOutbound: ChannelOutboundAdapter = {
-  deliveryMode: "direct",
-  textChunkLimit: 4096,
+export async function sendSocketChatText(params: {
+  to: string;
+  text: string;
+  accountId?: string;
+}): Promise<{ channel: string; messageId: string }> {
+  const { to, text } = params;
+  const resolvedAccountId = params.accountId ?? DEFAULT_ACCOUNT_ID;
+  const client = getActiveMqttClient(resolvedAccountId);
+  const mqttConfig = getActiveMqttConfig(resolvedAccountId);
 
-  resolveTarget: ({ to }) => {
-    const normalized = to ? normalizeSocketChatTarget(to) : undefined;
-    if (!normalized) {
-      return { ok: false, error: new Error(`Invalid socket-chat target: "${to}"`) };
-    }
-    return { ok: true, to: normalized };
-  },
-
-  sendText: async ({ to, text, accountId }) => {
-    const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
-    const client = getActiveMqttClient(resolvedAccountId);
-    const mqttConfig = getActiveMqttConfig(resolvedAccountId);
-
-    if (!client || !mqttConfig) {
-      throw new Error(
-        `[socket-chat] No active MQTT connection for account "${resolvedAccountId}". ` +
+  if (!client || !mqttConfig) {
+    throw new Error(
+      `[socket-chat] No active MQTT connection for account "${resolvedAccountId}". ` +
         "Is the gateway running?",
-      );
-    }
+    );
+  }
 
-    const payload = buildTextPayload(to, text);
-    const result = await sendSocketChatMessage({ mqttClient: client, mqttConfig, payload });
-    return { channel: "socket-chat", messageId: result.messageId };
-  },
-
-  sendMedia: async ({ to, text, mediaUrl, accountId }) => {
-    const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
-    const client = getActiveMqttClient(resolvedAccountId);
-    const mqttConfig = getActiveMqttConfig(resolvedAccountId);
-
-    if (!client || !mqttConfig) {
-      throw new Error(
-        `[socket-chat] No active MQTT connection for account "${resolvedAccountId}".`,
-      );
-    }
-
-    // 有图片 URL 时发图片（可附带 caption），否则退化为纯文字
-    if (mediaUrl) {
-      const payload = buildMediaPayload(to, mediaUrl, text);
-      const result = await sendSocketChatMessage({ mqttClient: client, mqttConfig, payload });
-      return { channel: "socket-chat", messageId: result.messageId };
-    }
-
-    const payload = buildTextPayload(to, text);
-    const result = await sendSocketChatMessage({ mqttClient: client, mqttConfig, payload });
-    return { channel: "socket-chat", messageId: result.messageId };
-  },
-};
+  const base = parseSocketChatTarget(to);
+  const payload: SocketChatOutboundPayload = {
+    ...base,
+    messages: [{ type: 1, content: text }],
+  };
+  const result = await sendSocketChatMessage({ mqttClient: client, mqttConfig, payload });
+  return { channel: "socket-chat", messageId: result.messageId };
+}

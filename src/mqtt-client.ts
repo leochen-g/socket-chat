@@ -1,20 +1,29 @@
 import type { MqttClient, IPublishPacket } from "mqtt";
 import mqtt from "mqtt";
-import type { ChannelGatewayContext } from "openclaw/plugin-sdk";
 import { fetchMqttConfigCached, invalidateMqttConfigCache } from "./api.js";
-import { handleInboundMessage } from "./inbound.js";
-import type { ResolvedSocketChatAccount } from "./config.js";
-import type { SocketChatInboundMessage, SocketChatMqttConfig, SocketChatStatusPatch } from "./types.js";
-import { buildTextPayload, sendSocketChatMessage } from "./outbound.js";
+import { handleSocketChatInbound } from "./inbound.js";
+import type { CoreConfig, ResolvedSocketChatAccount } from "./config.js";
+import type {
+  SocketChatInboundMessage,
+  SocketChatMqttConfig,
+  SocketChatOutboundPayload,
+  SocketChatStatusPatch,
+} from "./types.js";
+import { parseSocketChatTarget, sendSocketChatMessage } from "./outbound.js";
 
 const MAX_RECONNECT_ATTEMPTS_DEFAULT = 10;
 const RECONNECT_BASE_DELAY_MS_DEFAULT = 2000;
 const RECONNECT_MAX_DELAY_MS = 60_000;
 
-type LogSink = NonNullable<ChannelGatewayContext["log"]>;
+type LogSink = {
+  info: (m: string) => void;
+  warn: (m: string) => void;
+  error: (m: string) => void;
+  debug?: (m: string) => void;
+};
 
 // ---------------------------------------------------------------------------
-// 活跃连接注册表（供 outbound 查找当前 MQTT client）
+// Active connection registry (used by outbound to find the current MQTT client)
 // ---------------------------------------------------------------------------
 const activeClients = new Map<string, MqttClient>();
 const activeMqttConfigs = new Map<string, SocketChatMqttConfig>();
@@ -43,7 +52,7 @@ export function clearActiveMqttSession(accountId: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// 工具函数
+// Helpers
 // ---------------------------------------------------------------------------
 
 function buildMqttUrl(mqttConfig: SocketChatMqttConfig): string {
@@ -77,9 +86,10 @@ function parseInboundMessage(raw: Buffer | string): SocketChatInboundMessage | n
       messageId: m.messageId,
       type: typeof m.type === "string" ? m.type : undefined,
       url: typeof m.url === "string" ? m.url : undefined,
-      mediaInfo: m.mediaInfo && typeof m.mediaInfo === "object" && !Array.isArray(m.mediaInfo)
-        ? (m.mediaInfo as Record<string, unknown>)
-        : undefined,
+      mediaInfo:
+        m.mediaInfo && typeof m.mediaInfo === "object" && !Array.isArray(m.mediaInfo)
+          ? (m.mediaInfo as Record<string, unknown>)
+          : undefined,
     };
   } catch {
     return null;
@@ -94,47 +104,48 @@ function backoffDelay(attempt: number, baseMs: number): number {
 function waitMs(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
-      clearTimeout(timer);
-      resolve();
-    }, { once: true });
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
   });
 }
 
 // ---------------------------------------------------------------------------
-// 核心 Monitor 循环
+// Core monitor loop
 // ---------------------------------------------------------------------------
 
 /**
- * 启动 MQTT 监听循环，支持：
- *  - 自动拉取远端 MQTT 配置（带缓存）
- *  - 自动重连 + 指数退避
- *  - 注册活跃 client 供 outbound 发消息
- *  - AbortSignal 优雅停止
+ * Start the MQTT monitoring loop with:
+ * - Remote MQTT config fetch (with TTL cache)
+ * - Auto-reconnect with exponential backoff
+ * - Active client registry for outbound sends
+ * - AbortSignal-based graceful shutdown
  */
 export async function monitorSocketChatProviderWithRegistry(params: {
   account: ResolvedSocketChatAccount;
   accountId: string;
-  ctx: ChannelGatewayContext<ResolvedSocketChatAccount>;
+  config: CoreConfig;
+  abortSignal: AbortSignal;
   log: LogSink;
+  statusSink: (patch: SocketChatStatusPatch) => void;
 }): Promise<void> {
-  const { account, accountId, ctx, log } = params;
-  const { abortSignal } = ctx;
+  const { account, accountId, config, abortSignal, log, statusSink } = params;
   const maxReconnects = account.config.maxReconnectAttempts ?? MAX_RECONNECT_ATTEMPTS_DEFAULT;
   const reconnectBaseMs = account.config.reconnectBaseDelayMs ?? RECONNECT_BASE_DELAY_MS_DEFAULT;
   const mqttConfigTtlMs = (account.config.mqttConfigTtlSec ?? 300) * 1000;
 
   let reconnectAttempts = 0;
 
-  const setStatus = (patch: SocketChatStatusPatch): void => {
-    ctx.setStatus({ accountId, ...patch } as Parameters<typeof ctx.setStatus>[0]);
-  };
-
-  setStatus({ running: true, lastStartAt: Date.now() });
+  statusSink({ running: true, lastStartAt: Date.now() });
 
   try {
     while (!abortSignal.aborted) {
-      // 1. 拉取 MQTT 配置
+      // 1. Fetch MQTT config
       let mqttConfig: SocketChatMqttConfig;
       try {
         mqttConfig = await fetchMqttConfigCached({
@@ -147,18 +158,18 @@ export async function monitorSocketChatProviderWithRegistry(params: {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.error(`[${accountId}] failed to fetch MQTT config: ${message}`);
-        setStatus({ lastError: message });
+        statusSink({ lastError: message });
         reconnectAttempts++;
         if (reconnectAttempts > maxReconnects) {
           log.error(`[${accountId}] max reconnect attempts (${maxReconnects}) reached`);
           break;
         }
-        setStatus({ reconnectAttempts });
+        statusSink({ reconnectAttempts });
         await waitMs(backoffDelay(reconnectAttempts, reconnectBaseMs), abortSignal);
         continue;
       }
 
-      // 2. 建立 MQTT 连接
+      // 2. Establish MQTT connection
       const mqttUrl = buildMqttUrl(mqttConfig);
       log.info(`[${accountId}] connecting to ${mqttUrl} (clientId=${mqttConfig.clientId})`);
 
@@ -167,14 +178,14 @@ export async function monitorSocketChatProviderWithRegistry(params: {
         username: mqttConfig.username,
         password: mqttConfig.password,
         clean: true,
-        reconnectPeriod: 0,   // 禁用 mqtt.js 内置重连，由外层循环管理
+        reconnectPeriod: 0, // disable mqtt.js auto-reconnect; managed by outer loop
         connectTimeout: 15_000,
         keepalive: 60,
       });
 
       setActiveMqttClient(accountId, client);
 
-      // 等待连接关闭（正常关闭或错误都会 resolve）
+      // Wait until connection closes (normally or on error)
       await new Promise<void>((resolve) => {
         const onAbort = (): void => {
           log.info(`[${accountId}] abort signal, disconnecting`);
@@ -185,7 +196,7 @@ export async function monitorSocketChatProviderWithRegistry(params: {
 
         client.on("connect", () => {
           reconnectAttempts = 0;
-          setStatus({
+          statusSink({
             connected: true,
             reconnectAttempts: 0,
             lastConnectedAt: Date.now(),
@@ -205,74 +216,79 @@ export async function monitorSocketChatProviderWithRegistry(params: {
 
         client.on("message", (topic: string, rawPayload: Buffer, _packet: IPublishPacket) => {
           if (topic !== mqttConfig.reciveTopic) return;
-          setStatus({ lastEventAt: Date.now(), lastInboundAt: Date.now() });
+          statusSink({ lastEventAt: Date.now(), lastInboundAt: Date.now() });
 
           const msg = parseInboundMessage(rawPayload);
           if (!msg) {
             log.warn(`[${accountId}] unparseable message on ${topic}`);
             return;
           }
-          // 跳过机器人自己的回声消息
+          // Skip the bot's own echo messages
           if (msg.robotId === mqttConfig.robotId && msg.senderId === mqttConfig.robotId) {
             return;
           }
 
           log.info(
             `[${accountId}] inbound msg ${msg.messageId} from ${msg.senderId}` +
-            (msg.isGroup ? ` in group ${msg.groupId}` : ""),
+              (msg.isGroup ? ` in group ${msg.groupId}` : ""),
           );
 
-          void handleInboundMessage({
+          void handleSocketChatInbound({
             msg,
             accountId,
-            ctx,
+            config,
             log,
+            statusSink,
             sendReply: async (to: string, text: string) => {
-              const payload = buildTextPayload(to, text);
+              const base = parseSocketChatTarget(to);
+              const payload: SocketChatOutboundPayload = {
+                ...base,
+                messages: [{ type: 1, content: text }],
+              };
               await sendSocketChatMessage({ mqttClient: client, mqttConfig, payload });
             },
           }).catch((e: unknown) => {
             log.error(
-              `[${accountId}] handleInboundMessage error: ${e instanceof Error ? e.message : String(e)}`,
+              `[${accountId}] handleSocketChatInbound error: ${e instanceof Error ? e.message : String(e)}`,
             );
           });
         });
 
         client.on("error", (err: Error) => {
           log.warn(`[${accountId}] MQTT error: ${err.message}`);
-          setStatus({ lastError: err.message });
+          statusSink({ lastError: err.message });
         });
 
         client.on("close", () => {
-          setStatus({ connected: false, lastDisconnect: new Date().toISOString() });
+          statusSink({ connected: false, lastDisconnect: new Date().toISOString() });
           abortSignal.removeEventListener("abort", onAbort);
           resolve();
         });
       });
 
-      // 清理注册表
+      // Remove from registry
       activeClients.delete(accountId);
 
       if (abortSignal.aborted) break;
 
-      // 3. 重连退避
+      // 3. Reconnect with backoff
       reconnectAttempts++;
       if (reconnectAttempts > maxReconnects) {
         log.error(`[${accountId}] max reconnect attempts (${maxReconnects}) reached, giving up`);
         break;
       }
-      // 清除 MQTT config 缓存，下次重连时重新拉取（token 可能已过期）
+      // Invalidate config cache so next reconnect re-fetches (token may have expired)
       invalidateMqttConfigCache({ apiBaseUrl: account.apiBaseUrl!, apiKey: account.apiKey! });
       const delay = backoffDelay(reconnectAttempts, reconnectBaseMs);
       log.info(
         `[${accountId}] reconnect ${reconnectAttempts}/${maxReconnects} in ${Math.round(delay)}ms`,
       );
-      setStatus({ reconnectAttempts });
+      statusSink({ reconnectAttempts });
       await waitMs(delay, abortSignal);
     }
   } finally {
     clearActiveMqttSession(accountId);
-    setStatus({ running: false, connected: false, lastStopAt: Date.now() });
+    statusSink({ running: false, connected: false, lastStopAt: Date.now() });
     log.info(`[${accountId}] monitor stopped`);
   }
 }

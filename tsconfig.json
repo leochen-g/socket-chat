@@ -12,6 +12,6 @@
     "sourceMap": true,
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["index.ts", "src/**/*.ts"],
+  "include": ["index.ts", "channel-api.ts", "runtime-api.ts", "src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
