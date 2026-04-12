@@ -1,6 +1,6 @@
 {
   "name": "@openclaw-channel/socket-chat",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "OpenClaw Socket Chat channel plugin — MQTT-based IM bridge",
   "type": "module",
   "publishConfig": {
@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "mqtt": "^4.3.8",
+    "mqtt": "^5.10.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -36,7 +36,7 @@
       "order": 90
     },
     "install": {
-      "npmSpec": "@openclaw/socket-chat",
+      "npmSpec": "@openclaw-channel/socket-chat",
       "localPath": ".",
       "defaultChoice": "local"
     }
