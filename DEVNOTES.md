@@ -190,6 +190,86 @@ const maxBytes = resolveChannelMediaMaxBytes({
 
 ---
 
+## Gateway 启动日志说明
+
+### "abort signal, disconnecting" / "monitor stopped" 出现在启动日志中
+
+**现象**：网关启动后日志出现：
+```
+gateway/channels/socket-chat [default] abort signal, disconnecting
+[default] monitor stopped
+```
+随后又出现正常的连接日志。
+
+**原因**：这是旧进程优雅关闭的日志，不是新进程的报错。
+- 旧进程和新进程写入同一个日志文件，日志会交错出现
+- 旧进程收到 SIGTERM → 触发 AbortSignal → MQTT 断开连接 → 输出上述日志
+- 新进程随后启动，输出 `"[default] starting socket-chat MQTT provider"` 后正常连接
+
+**判断方法**：新进程日志中有 `"starting socket-chat MQTT provider"` 再无上述错误，即为正常。确认：`openclaw channels status` 显示 `running, connected`。
+
+---
+
+### "launchctl stop did not fully stop the service; used bootout fallback and left service unloaded"
+
+**现象**：执行 `openclaw gateway stop` 或 `openclaw gateway restart` 时打印此警告。
+
+**原因**：`stopLaunchAgent`（`src/daemon/launchd.ts`）的降级逻辑：
+1. 先 `launchctl disable` 抑制 KeepAlive
+2. 发 `launchctl stop`，然后每 100ms 轮询一次，最多等 1 秒
+3. 1 秒内进程未退出 → 调用 `launchctl bootout` 强制卸载，并打印该警告
+
+socket-chat 的 MQTT monitor 在收到 abort 后会向 broker 发 DISCONNECT 包，等待 ACK，这个往返通常超过 1 秒，触发降级路径。这是**正常的优雅关闭**，不是 bug。
+
+**影响**：`bootout` 会将 LaunchAgent 从 launchd 注册表中移除，但：
+- `openclaw gateway restart` 后续会检测到 "not-loaded" 状态并重新 `bootstrap` + `kickstart`，整个 restart 仍然成功
+- `openclaw gateway stop` 场景下再次 start 也会重新 bootstrap
+
+**结论**：该警告可以忽略，网关最终状态是正确的。
+
+---
+
+## SDK 重构说明（channel-api.ts / runtime-api.ts）
+
+### 根目录新增文件
+
+经过 SDK 热路径重构，插件入口从单个 `index.ts` 拆分为三层：
+
+| 文件 | 用途 | 加载时机 |
+|------|------|---------|
+| `index.ts` | 插件注册入口，re-export 插件对象 | 框架启动时静态加载 |
+| `channel-api.ts` | channel 启动所需的最小集合（gateway、outbound 等） | 热路径，框架按需加载 |
+| `runtime-api.ts` | 重型运行时路径（send、monitor、probe、onboard 等） | 仅在实际用到时动态加载 |
+
+**tsconfig.json 的 include 必须包含三个文件**：
+```json
+"include": ["index.ts", "channel-api.ts", "runtime-api.ts", "src/**/*.ts"]
+```
+漏掉会导致 `tsc` 不输出对应的 `.js`，运行时 `import` 失败。
+
+### channel 状态更新
+
+`channel.ts` 的 `startAccount` 使用 `createAccountStatusSink` 替代直接调用 `ctx.setStatus`：
+
+```ts
+import { createAccountStatusSink } from "openclaw/plugin-sdk/channel-lifecycle";
+
+const statusSink = createAccountStatusSink({
+  accountId: ctx.accountId,
+  setStatus: ctx.setStatus,
+});
+```
+
+`statusSink` 是 `(patch: Omit<ChannelAccountSnapshot, "accountId">) => void`，内部自动拼入 `accountId`。状态 patch 直接传给 `monitorSocketChatProviderWithRegistry`，由 monitor 在连接/断开/重连时调用。
+
+### 为什么不用 runStoppablePassiveMonitor
+
+IRC extension 用 `runStoppablePassiveMonitor`，因为 `monitorIrcProvider` 返回一个 `StoppableMonitor` 句柄（非阻塞启动）。
+
+socket-chat 的 `monitorSocketChatProviderWithRegistry` 是 `async Promise<void>`，它自己内部循环并监听 `abortSignal`，整个函数在连接断开前不返回。**不能用 `runStoppablePassiveMonitor`**（类型不兼容，也没必要），直接 `return monitorSocketChatProviderWithRegistry(...)` 即可。
+
+---
+
 ## 发布流程
 
 1. 修改代码

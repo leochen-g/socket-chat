@@ -24,8 +24,8 @@ OpenClaw AI ──► socket-chat plugin ──MQTT──► sendTopic ──►
 # 从 npm 安装
 openclaw plugins install @openclaw-channel/socket-chat
 
-# 或者本地开发时从路径安装
-openclaw plugins install /path/to/socket-chat
+# 或者本地开发时从路径安装（--link 模式，改代码无需重装）
+openclaw plugins install --link /path/to/socket-chat
 ```
 
 ---
@@ -349,8 +349,10 @@ openclaw message send "Hello group" --channel socket-chat --to group:roomid_xxx
 ```
 socket-chat/
 ├── index.ts              # 插件入口（register）
+├── channel-api.ts        # 轻量 channel 启动路径（热路径 barrel，供框架 import）
+├── runtime-api.ts        # 运行时重型路径（send/monitor/probe 等，按需加载）
 ├── package.json          # 包配置，含 openclaw.extensions
-├── tsconfig.json
+├── tsconfig.json         # include: [index.ts, channel-api.ts, runtime-api.ts, src/**/*.ts]
 └── src/
     ├── types.ts          # MQTT 消息类型定义
     ├── config-schema.ts  # Zod 配置 Schema
